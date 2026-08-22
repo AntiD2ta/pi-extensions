@@ -28,9 +28,9 @@ this repo, and wayfinder maps are `wayfinder:map` work items.
 
 - The root `package.json` holds the workspaces list and the Pi manifest that loads
   `packages/*/index.ts`. It is `private`. Releases go out as git tags.
-- `packages/pi-powerline-footer` is a maintained fork of
-  [`nicobailon/pi-powerline-footer`](https://github.com/nicobailon/pi-powerline-footer), imported with
-  its history. Its `UPSTREAM.md` records provenance and licensing.
+- `packages/pi-powerline-footer` is a maintained source copy of
+  [`nicobailon/pi-powerline-footer`](https://github.com/nicobailon/pi-powerline-footer), without its
+  Git history. Its `UPSTREAM.md`, `NOTICE`, and `LICENSE` record provenance and licensing.
 - `test/` holds the root tests for package discovery and extension filtering.
 - The extension API docs ship inside the dependency, under
   `node_modules/@earendil-works/pi-coding-agent/docs`. Start with `extensions.md`, `tui.md`,
@@ -67,8 +67,8 @@ this repo, and wayfinder maps are `wayfinder:map` work items.
 ## Fork maintenance
 
 - `pi-powerline-footer` stays MIT with its original author credited in `package.json`. Record every
-  upstream import commit in `UPSTREAM.md`.
-- Keep local changes small so the next upstream merge stays cheap.
+  upstream source revision in `UPSTREAM.md` and `NOTICE`.
+- Keep local changes small so the next upstream sync stays cheap.
 - Feature-detect any Pi API that only the `AntiD2ta/pi` fork has, so the extension still runs on public
   Pi. The editor `handleMouse` wrapper in `index.ts` is the existing example.
 - Peer dependency ranges say which Pi versions a package supports. Change them together with the root
