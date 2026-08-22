@@ -1,0 +1,26 @@
+{
+  "name": "@antid2ta/pi-extensions",
+  "version": "0.1.0",
+  "description": "Personal Pi extensions distributed as a Git-based npm workspaces monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "pi": {
+    "extensions": [
+      "packages/*/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && npm run typecheck --workspaces",
+    "test": "node --experimental-strip-types --test test/**/*.test.ts && npm run test --workspaces"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}
