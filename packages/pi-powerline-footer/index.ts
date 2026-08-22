@@ -962,6 +962,19 @@ export function adjustPowerlineEditorMouseEvent(
   return { ...event, x: Math.max(0, event.x - 3) };
 }
 
+export function installPowerlineEditorMouseHandler(
+  editor: object,
+  adjustEvent: (event: { x: number; y: number }) => { x: number; y: number },
+): boolean {
+  const handleMouse = Reflect.get(editor, "handleMouse");
+  if (typeof handleMouse !== "function") return false;
+
+  Reflect.set(editor, "handleMouse", (event: { x: number; y: number }) => {
+    handleMouse.call(editor, adjustEvent(event));
+  });
+  return true;
+}
+
 export function renderFastPowerlineEditor(
   editor: unknown,
   width: number,
@@ -3059,15 +3072,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       restorePromptHistory(editor);
       attachAutocompleteProvider();
 
-      const baseHandleMouse = editor.handleMouse.bind(editor);
-      editor.handleMouse = (event) => {
-        baseHandleMouse(
-          adjustPowerlineEditorMouseEvent(event, {
-            editorChrome: editorPerf.options.editorChrome,
-            width: tui.terminal.columns,
-          }),
-        );
-      };
+      installPowerlineEditorMouseHandler(editor, (event) =>
+        adjustPowerlineEditorMouseEvent(event, {
+          editorChrome: editorPerf.options.editorChrome,
+          width: tui.terminal.columns,
+        }),
+      );
 
       const baseHandleInput = editor.handleInput.bind(editor);
       const originalHandleInput = editorPerf.options.enabled

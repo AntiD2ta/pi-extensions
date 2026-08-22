@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import { isSupportedSuperShortcut, matchesConfiguredShortcut, shortcutConflictKey } from "../shortcuts.ts";
+import * as powerlineFooter from "../index.ts";
 import {
   adjustPowerlineEditorMouseEvent,
   parseBashModeSettings,
@@ -60,6 +61,24 @@ test("Powerline editor click coordinates exclude its prompt gutter", () => {
     adjustPowerlineEditorMouseEvent({ x: 9, y: 1 }, { editorChrome: true, width: 9 }),
     { x: 9, y: 1 },
   );
+});
+
+test("Powerline only wraps editors that support mouse input", () => {
+  const installMouseHandler = Reflect.get(powerlineFooter, "installPowerlineEditorMouseHandler");
+  assert.equal(typeof installMouseHandler, "function");
+  if (typeof installMouseHandler !== "function") return;
+
+  const received: Array<{ x: number; y: number }> = [];
+  const editor = {
+    handleMouse(event: { x: number; y: number }) {
+      received.push(event);
+    },
+  };
+
+  assert.equal(installMouseHandler(editor, (event: { x: number; y: number }) => ({ ...event, x: event.x - 3 })), true);
+  editor.handleMouse({ x: 9, y: 1 });
+  assert.deepEqual(received, [{ x: 6, y: 1 }]);
+  assert.equal(installMouseHandler({}, (event: { x: number; y: number }) => event), false);
 });
 
 test("fast editor render keeps Powerline chrome for large drafts", () => {
