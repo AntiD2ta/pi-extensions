@@ -1,0 +1,26 @@
+{
+  "name": "pi-agent-status",
+  "version": "0.1.0",
+  "description": "Non-modal user-input requests for Pi agents",
+  "type": "module",
+  "files": [
+    "*.ts",
+    "*.md",
+    "*.json",
+    "tests/**/*.ts"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.81.0 <0.85.0",
+    "@earendil-works/pi-coding-agent": ">=0.81.0 <0.85.0",
+    "@earendil-works/pi-tui": ">=0.81.0 <0.85.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
