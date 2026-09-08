@@ -9,7 +9,11 @@
   ],
   "pi": {
     "extensions": [
-      "packages/*/index.ts"
+      "packages/*/index.ts",
+      "packages/*/queue.ts"
+    ],
+    "themes": [
+      "packages/*/themes/*.json"
     ]
   },
   "scripts": {
