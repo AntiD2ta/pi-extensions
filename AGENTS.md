@@ -19,15 +19,14 @@ this repo, and wayfinder maps are `wayfinder:map` work items.
 
 ### Executing a Plane work item
 
-When asked to "Pick PI-X", you are being asked to fetch the PI-X work item from the Plane project, understand it, exploring the work item relationships, paired PRD or ADRs if necessary.
+When asked to "Pick PI-X":
 
-If completing the work item requires writing or changing code, load the /skill:dev-tdd skill. As part of any feedback loop and acceptance criteria a work item might have, load and use the /skill:code-review skill to review the changes made, acting on any findings that don't require a spec or a design decision, which in such case you should use the /skill:grill-with-plane skill to prompt the human user for the decisions. Any follow up work that is worth tracking, should be reflected in Plane using /skill:plane-to-issues.
-
-If you are troubleshooting or diagnosing a bug, load the /skill:diagnosing-bugs skill.
-
-If the user asks you to write documentation which natural public is AI agents, load the /skill:writing-for-agents skill, otherwise use the /skill:unslop skill.
-
-Execute or implement any changes in a new git worktree (or in the existing one if you already are in a child git worktree for the relevant branch: i.e you are diagnosing a bug or reviewing code from the result of a previous session which already created a worktree). Commit your changes following the instructions from the below "Git" section, and push them, raising a draft PR if necessary. Load and use the /skill:show-me skill to write the PR description body. Prefer raising stacked and isolated PRs using the /skill:gh-stack skill for related Plane work items. A good PR Stack example is a set of Plane work items which constitute vertical slices for a single feature.
+  1. Fetch the work item from the PI project. Read its relationships and any linked PRD or ADR.
+  2. For a bug investigation, load `/skill:diagnosing-bugs`.
+  3. For code changes, load `/skill:dev-tdd`. Work in a new git worktree unless the current worktree already belongs to the task.
+  4. Load `/skill:code-review` during the acceptance loop. Fix findings that need no spec or design decision. Use `/skill:grill-with-plane` to resolve decisions with the user. Track worthwhile follow-up work through `/skill:plane-to-issues`.
+  5. For agent-facing documentation, load `/skill:writing-for-agents`. Apply `/skill:unslop` to other documentation.
+  6. Commit and push under the Git rules below. Use `/skill:show-me` for the PR body. Prefer `/skill:gh-stack` when related work items form independently reviewable vertical slices.
 
 ## Style
 
