@@ -1,0 +1,30 @@
+{
+  "name": "pi-visual-profile",
+  "version": "0.1.0",
+  "description": "Opt-in visual profile and queue extension shell for Pi",
+  "type": "module",
+  "files": [
+    "*.ts",
+    "themes/*.json",
+    "README.md",
+    "tests/**/*.ts"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.81.0 <0.85.0",
+    "@earendil-works/pi-coding-agent": ">=0.81.0 <0.85.0",
+    "@earendil-works/pi-tui": ">=0.81.0 <0.85.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts",
+      "./queue.ts"
+    ],
+    "themes": [
+      "./themes/*.json"
+    ]
+  }
+}

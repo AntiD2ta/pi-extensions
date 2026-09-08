@@ -7,13 +7,12 @@ import { fileURLToPath } from "node:url";
 import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
 
 function createPackageFixture() {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-extensions-test-"));
 	const packageDir = join(tempDir, "package");
 	const agentDir = join(tempDir, "agent");
-	const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
-
 	mkdirSync(join(packageDir, "packages", "alpha"), { recursive: true });
 	mkdirSync(join(packageDir, "packages", "beta"), { recursive: true });
 	mkdirSync(agentDir, { recursive: true });
@@ -33,6 +32,38 @@ async function loadExtensionPaths(packageDir: string, agentDir: string) {
 	await resourceLoader.reload();
 	return resourceLoader.getExtensions().extensions.map((extension) => extension.path).sort();
 }
+
+test("root manifest declares both visual-profile entries and its themes", () => {
+	assert.deepEqual(rootManifest.pi, {
+		extensions: ["packages/*/index.ts", "packages/*/queue.ts"],
+		themes: ["packages/*/themes/*.json"],
+	});
+});
+
+test("visual-profile package contributes independently selectable entries and themes", async (t) => {
+	const fixture = createPackageFixture();
+	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
+	writeFileSync(join(fixture.agentDir, "settings.json"), JSON.stringify({ packages: [repositoryRoot] }));
+
+	const resourceLoader = new DefaultResourceLoader({ cwd: fixture.packageDir, agentDir: fixture.agentDir });
+	await resourceLoader.reload();
+
+	assert.deepEqual(
+		resourceLoader.getExtensions().extensions
+			.map((extension) => extension.path)
+			.filter((path) => path.includes("pi-visual-profile"))
+			.sort(),
+		[
+			join(repositoryRoot, "packages", "pi-visual-profile", "index.ts"),
+			join(repositoryRoot, "packages", "pi-visual-profile", "queue.ts"),
+		],
+	);
+	const visualProfileThemes = resourceLoader.getThemes().themes
+		.map((theme) => theme.name)
+		.filter((name): name is string => name?.startsWith("pi-visual-profile") === true)
+		.sort();
+	assert.deepEqual(visualProfileThemes, ["pi-visual-profile-dark", "pi-visual-profile-light"]);
+});
 
 test("root manifest loads every workspace extension by default", async (t) => {
 	const fixture = createPackageFixture();

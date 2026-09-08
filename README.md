@@ -43,6 +43,7 @@ Use `"extensions": []` to load no extensions from the package. Omitting `extensi
 
 - [`pi-agent-status`](packages/pi-agent-status/README.md): non-modal free-text input requests for agents.
 - [`pi-powerline-footer`](packages/pi-powerline-footer/README.md): a Powerline-style Pi status bar.
+- [`pi-visual-profile`](packages/pi-visual-profile/README.md): opt-in visual-profile and queue extension shells.
 
 ## Development
 
