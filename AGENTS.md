@@ -17,6 +17,18 @@ that in its response rather than failing.
 Conventions: decisions are `adr` work items, issues are work items, the glossary is `CONTEXT.md` in
 this repo, and wayfinder maps are `wayfinder:map` work items.
 
+### Executing a Plane work item
+
+When asked to "Pick PI-X", you are being asked to fetch the PI-X work item from the Plane project, understand it, exploring the work item relationships, paired PRD or ADRs if necessary.
+
+If completing the work item requires writing or changing code, load the /skill:dev-tdd skill. As part of any feedback loop and acceptance criteria a work item might have, load and use the /skill:code-review skill to review the changes made, acting on any findings that don't require a spec or a design decision, which in such case you should use the /skill:grill-with-plane skill to prompt the human user for the decisions. Any follow up work that is worth tracking, should be reflected in Plane using /skill:plane-to-issues.
+
+If you are troubleshooting or diagnosing a bug, load the /skill:diagnosing-bugs skill.
+
+If the user asks you to write documentation which natural public is AI agents, load the /skill:writing-for-agents skill, otherwise use the /skill:unslop skill.
+
+Execute or implement any changes in a new git worktree (or in the existing one if you already are in a child git worktree for the relevant branch: i.e you are diagnosing a bug or reviewing code from the result of a previous session which already created a worktree). Commit your changes following the instructions from the below "Git" section, and push them, raising a draft PR if necessary. Load and use the /skill:show-me skill to write the PR description body. Prefer raising stacked and isolated PRs using the /skill:gh-stack skill for related Plane work items. A good PR Stack example is a set of Plane work items which constitute vertical slices for a single feature.
+
 ## Style
 
 - Short answers, technical prose, no filler.
@@ -92,6 +104,13 @@ this repo, and wayfinder maps are `wayfinder:map` work items.
 - Never run `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash`, or
   `git commit --no-verify`. Never force push.
 - Never commit unless the user asks.
+
+For the commit message:
+  - Include key decisions made
+  - Include files changed
+  - Blockers or notes for next iteration
+
+If the git operations you are making involves git conflicts, load and use the /skill:resolving-merge-conflicts skill.
 
 ## User override
 
