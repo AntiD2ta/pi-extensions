@@ -45,6 +45,17 @@ For a trusted project override, start Pi in that project and run:
 6. Restart Pi with the same `trial_home`; confirm the selected profile and glyph settings persist.
 7. Start Pi with only `packages/pi-visual-profile/queue.ts` selected in `settings.json`; confirm `/compact continue after compaction` captures the prompt, compacts, then delivers it. `/visual-profile` must remain unavailable.
 
+## Offline queue smoke model
+
+The checkout includes `tests/faux-provider.ts` for deterministic local smoke tests. Load it explicitly with the queue extension. It registers `pi-visual-profile-faux/scripted`, uses no network or credentials, and returns one scripted response:
+
+```bash
+HOME="$(mktemp -d)" pi \
+  -e "$PWD/packages/pi-visual-profile/queue.ts" \
+  -e "$PWD/packages/pi-visual-profile/tests/faux-provider.ts" \
+  --provider pi-visual-profile-faux --model scripted
+```
+
 Remove the trial data when finished:
 
 ```bash
