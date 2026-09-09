@@ -3,7 +3,7 @@
 Opt-in visual-profile and queue extension shells for Pi. They are independently selectable package entries:
 
 - `packages/pi-visual-profile/index.ts`: profile commands, typed configuration, themes, and the visible footer prototype.
-- `packages/pi-visual-profile/queue.ts`: queue ownership shell. Queue delivery arrives in PI-32.
+- `packages/pi-visual-profile/queue.ts`: independently loadable durable queue delivery. It owns the new queue store, delivery lifecycle, compaction capture, and native status. PI-37 adds queue management commands and picker UI.
 
 ## Visual trial
 
@@ -43,7 +43,7 @@ For a trusted project override, start Pi in that project and run:
 4. Confirm `/visual-profile disable` restores Pi's native footer.
 5. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, capability support, and native degradation.
 6. Restart Pi with the same `trial_home`; confirm the selected profile and glyph settings persist.
-7. Start Pi with only `packages/pi-visual-profile/queue.ts` selected in `settings.json`; confirm `/visual-profile-queue` works while `/visual-profile` is unavailable.
+7. Start Pi with only `packages/pi-visual-profile/queue.ts` selected in `settings.json`; confirm `/compact continue after compaction` captures the prompt, compacts, then delivers it. `/visual-profile` must remain unavailable.
 
 Remove the trial data when finished:
 
