@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 export type GlyphMode = "unicode" | "nerd-font" | "ascii";
 export type BorderStyle = "rounded" | "sharp" | "none";
 export type ThemeMode = "profile" | "inherit";
+export type ToolCardStyle = "boxed" | "minimal";
 
 export interface VisualProfileConfig {
 	enabled: boolean;
@@ -11,6 +12,7 @@ export interface VisualProfileConfig {
 	glyphMode: GlyphMode;
 	borderStyle: BorderStyle;
 	padding: number;
+	toolCardStyle: ToolCardStyle;
 }
 
 export const DEFAULT_CONFIG: VisualProfileConfig = {
@@ -19,6 +21,7 @@ export const DEFAULT_CONFIG: VisualProfileConfig = {
 	glyphMode: "unicode",
 	borderStyle: "rounded",
 	padding: 1,
+	toolCardStyle: "boxed",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -40,6 +43,7 @@ function parseConfigPatch(value: unknown): Partial<VisualProfileConfig> {
 		...(typeof value.padding === "number" && Number.isInteger(value.padding) && value.padding >= 0 && value.padding <= 3
 			? { padding: value.padding }
 			: {}),
+		...(isOneOf(value.toolCardStyle, ["boxed", "minimal"]) ? { toolCardStyle: value.toolCardStyle } : {}),
 	};
 }
 
