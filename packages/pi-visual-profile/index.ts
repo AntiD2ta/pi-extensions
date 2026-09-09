@@ -3,6 +3,7 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 import { join } from "node:path";
 import { type GlyphMode, type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
 import { formatDoctor } from "./doctor.ts";
+import { createToolRendererProfile, type ToolRendererProfile } from "./tool-cards.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
 const PROFILE_THEME_LIGHT = "pi-visual-profile-light";
@@ -78,11 +79,36 @@ function doctor(ctx: ExtensionContext): string {
 	});
 }
 
+type ProfileCapableExtensionAPI = ExtensionAPI & {
+	activateToolRendererProfile?: (profile: ToolRendererProfile) => () => void;
+};
+
 export default function (pi: ExtensionAPI) {
 	let ownsFooter = false;
+	let releaseToolRendererProfile: (() => void) | undefined;
+	const profileAPI = pi as ProfileCapableExtensionAPI;
+
+	const apply = (ctx: ExtensionContext) => {
+		releaseToolRendererProfile?.();
+		releaseToolRendererProfile = undefined;
+		const config = effectiveConfig(ctx);
+		if (config.enabled && ctx.mode === "tui") {
+			releaseToolRendererProfile = profileAPI.activateToolRendererProfile?.(
+				createToolRendererProfile(config.toolCardStyle),
+			);
+		}
+		const nextOwnsFooter = applyProfile(ctx);
+		if (!nextOwnsFooter && ownsFooter) ctx.ui.setFooter(undefined);
+		ownsFooter = nextOwnsFooter;
+	};
 
 	pi.on("session_start", (_event, ctx) => {
-		ownsFooter = applyProfile(ctx);
+		apply(ctx);
+	});
+
+	pi.on("session_shutdown", () => {
+		releaseToolRendererProfile?.();
+		releaseToolRendererProfile = undefined;
 	});
 
 	pi.registerCommand("visual-profile", {
@@ -105,19 +131,23 @@ export default function (pi: ExtensionAPI) {
 						? { enabled: false }
 						: { themeMode: "inherit" as const };
 				if (!save(ctx, patch, local)) return;
-				const nextOwnsFooter = applyProfile(ctx);
-				if (!nextOwnsFooter && ownsFooter) ctx.ui.setFooter(undefined);
-				ownsFooter = nextOwnsFooter;
+				apply(ctx);
 				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
 			if (command === "glyph" && (value === "unicode" || value === "nerd-font" || value === "ascii")) {
 				if (!save(ctx, { glyphMode: value }, local)) return;
-				ownsFooter = applyProfile(ctx);
+				apply(ctx);
 				ctx.ui.notify(`Glyph mode set to ${value}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
-			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|doctor] [--local]", "error");
+			if (command === "cards" && (value === "boxed" || value === "minimal")) {
+				if (!save(ctx, { toolCardStyle: value }, local)) return;
+				apply(ctx);
+				ctx.ui.notify(`Tool cards set to ${value}${local ? " locally" : " globally"}.`, "info");
+				return;
+			}
+			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|doctor] [--local]", "error");
 		},
 	});
 }

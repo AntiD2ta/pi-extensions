@@ -5,6 +5,7 @@ export type GlyphMode = "unicode" | "nerd-font" | "ascii";
 export type BorderStyle = "rounded" | "sharp" | "none";
 export type SeparatorStyle = "chevron" | "powerline" | "dot" | "none";
 export type ThemeMode = "profile" | "inherit";
+export type ToolCardStyle = "boxed" | "minimal";
 
 export interface VisualProfileConfig {
 	enabled: boolean;
@@ -15,6 +16,7 @@ export interface VisualProfileConfig {
 	padding: number;
 	footerRows: number;
 	usageWindowHours: number;
+	toolCardStyle: ToolCardStyle;
 }
 
 export const DEFAULT_CONFIG: VisualProfileConfig = {
@@ -26,6 +28,7 @@ export const DEFAULT_CONFIG: VisualProfileConfig = {
 	padding: 1,
 	footerRows: 2,
 	usageWindowHours: 5,
+	toolCardStyle: "boxed",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -56,6 +59,7 @@ function parseConfigPatch(value: unknown): Partial<VisualProfileConfig> {
 		...(typeof value.usageWindowHours === "number" && Number.isFinite(value.usageWindowHours) && value.usageWindowHours > 0
 			? { usageWindowHours: value.usageWindowHours }
 			: {}),
+		...(isOneOf(value.toolCardStyle, ["boxed", "minimal"]) ? { toolCardStyle: value.toolCardStyle } : {}),
 	};
 }
 

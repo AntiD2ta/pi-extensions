@@ -26,6 +26,7 @@ test("doctor renders configuration in readable sections", () => {
 		"  padding: 1",
 		"  footer rows: 2",
 		"  usage window: 5 hours",
+		"  tool cards: boxed",
 		"",
 		"Themes",
 		"  pi-visual-profile-dark: available",

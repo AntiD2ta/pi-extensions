@@ -20,6 +20,8 @@ At the Pi prompt, run these commands in order:
 ```text
 /visual-profile doctor
 /visual-profile enable
+/visual-profile cards boxed
+/visual-profile cards minimal
 /visual-profile glyph unicode
 /visual-profile glyph ascii
 /visual-profile glyph nerd-font
@@ -39,11 +41,12 @@ For a trusted project override, start Pi in that project and run:
 
 1. Select both `pi-visual-profile-dark` and `pi-visual-profile-light` through `/settings`; confirm readable text, borders, user blocks, tool states, Markdown, and syntax colors.
 2. After `/visual-profile enable`, confirm the compact footer shows the profile mode, glyph mode, and current Git branch.
-3. Confirm `unicode`, `ascii`, and `nerd-font` repaint the footer immediately. In ASCII mode, the footer must contain only ASCII glyphs.
-4. Confirm `/visual-profile disable` restores Pi's native footer.
-5. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, capability support, and native degradation.
-6. Restart Pi with the same `trial_home`; confirm the selected profile and glyph settings persist.
-7. Start Pi with only `packages/pi-visual-profile/queue.ts` selected in `settings.json`; confirm `/visual-profile-queue` works while `/visual-profile` is unavailable.
+3. Compare `/visual-profile cards boxed` with `/visual-profile cards minimal`. Both must show a tool, primary argument, and textual state; only boxed uses Pi's colored card shell.
+4. Confirm `unicode`, `ascii`, and `nerd-font` repaint the footer immediately. In ASCII mode, the footer must contain only ASCII glyphs.
+5. Confirm `/visual-profile disable` restores Pi's native footer and tool presentation.
+6. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, capability support, and native degradation.
+7. Restart Pi with the same `trial_home`; confirm the selected profile, glyph settings, and card style persist.
+8. Start Pi with only `packages/pi-visual-profile/queue.ts` selected in `settings.json`; confirm `/visual-profile-queue` works while `/visual-profile` is unavailable.
 
 Remove the trial data when finished:
 

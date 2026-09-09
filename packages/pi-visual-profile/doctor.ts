@@ -26,6 +26,7 @@ export function formatDoctor(report: DoctorReport): string {
 		`  padding: ${config.padding}`,
 		`  footer rows: ${config.footerRows}`,
 		`  usage window: ${config.usageWindowHours} hours`,
+		`  tool cards: ${config.toolCardStyle}`,
 		"",
 		"Themes",
 		`  pi-visual-profile-dark: ${report.darkThemeAvailable ? "available" : "unavailable"}`,

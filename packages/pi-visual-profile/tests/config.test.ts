@@ -36,6 +36,13 @@ test("saving configuration keeps existing valid fields", (t) => {
 	});
 });
 
+test("configuration accepts a tool card style", () => {
+	assert.deepEqual(parseConfig({ toolCardStyle: "minimal" }), {
+		...DEFAULT_CONFIG,
+		toolCardStyle: "minimal",
+	});
+});
+
 test("configuration preserves valid fields when another field is malformed", () => {
 	const config = parseConfig({
 		enabled: true,
