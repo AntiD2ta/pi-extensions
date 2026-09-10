@@ -6,7 +6,10 @@ const args = process.argv.slice(2);
 function run(script, scriptArgs = []) {
   const commandArgs = ["run", script];
   if (scriptArgs.length > 0) commandArgs.push("--", ...scriptArgs);
-  const result = spawnSync(npm, commandArgs, { stdio: "inherit" });
+  const result = spawnSync(npm, commandArgs, {
+    stdio: "inherit",
+    shell: process.platform === "win32"
+  });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
   return process.exitCode === 0;

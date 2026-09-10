@@ -1,9 +1,27 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { tmpdir } from "node:os";
+
+async function findDependencyDirectory() {
+  let directory = process.cwd();
+  while (true) {
+    const candidate = path.join(directory, "node_modules");
+    try {
+      await Promise.all([
+        access(path.join(candidate, "zod", "package.json")),
+        access(path.join(candidate, "strip-json-comments", "package.json"))
+      ]);
+      return candidate;
+    } catch {
+      const parent = path.dirname(directory);
+      if (parent === directory) throw new Error("Unable to find node_modules");
+      directory = parent;
+    }
+  }
+}
 
 async function extractPackedPackage(fixtureRoot) {
   const packed = spawnSync("npm", ["pack", "--json", "--pack-destination", fixtureRoot], {
@@ -18,7 +36,7 @@ async function extractPackedPackage(fixtureRoot) {
     encoding: "utf8"
   });
   assert.equal(extracted.status, 0, `${extracted.stdout}\n${extracted.stderr}`);
-  await symlink(path.join(process.cwd(), "node_modules"), path.join(packageRoot, "node_modules"), "dir");
+  await symlink(await findDependencyDirectory(), path.join(packageRoot, "node_modules"), "dir");
 }
 
 test("public metadata, config, and type helpers load in plain Node from node_modules", async () => {
