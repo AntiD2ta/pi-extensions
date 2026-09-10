@@ -20,5 +20,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Build MCP adapter test artifacts
+        run: npm run build:public --workspace pi-mcp-adapter
+      - name: Build MCP adapter visualizer example
+        run: |
+          npm install --prefix packages/pi-mcp-adapter/examples/interactive-visualizer --no-package-lock --no-audit --no-fund
+          npm run build --prefix packages/pi-mcp-adapter/examples/interactive-visualizer
       - run: npm run typecheck
       - run: npm test
