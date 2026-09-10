@@ -116,3 +116,30 @@ If the git operations you are making involves git conflicts, load and use the /s
 
 If the user's instructions conflict with a rule here, ask for confirmation before overriding it. Then
 do what they asked.
+
+## Visual validation and smoke tests
+
+For visual TUI work, leave implementation uncommitted until a human signs off.
+
+Use Herdr only when `HERDR_ENV=1`. Create validation tabs with
+`herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "<task>" --no-focus`.
+Never steal the user's focus.
+
+Use a two-agent trial:
+1. Start a writable Sol coordinator in the first background tab.
+2. Sol creates a second background Herdr tab for a Luna smoke-test agent.
+3. Luna runs the local Pi build and leaves its interactive TUI visible.
+4. Sol drives Luna with repeatable smoke-test prompts and steering. The human inspects Luna's tab.
+5. Keep both agents and tabs open until the human signs off. Do not commit, push, or create a PR first.
+
+When a model call is needed, add a test-only faux-provider extension under the affected package's `tests/` support files. It must:
+- import `fauxProvider()` from `@earendil-works/pi-ai`;
+- register it programmatically through Pi's extension API;
+- use scripted responses that exercise the exact built-in tools and states under review;
+- use no network, credentials, or paid provider;
+- remain outside production package entries and runtime behavior.
+
+Build the local core checkout with `npm ci --ignore-scripts` and `npm run build`. Link only the local `pi-ai`, `pi-tui`, and `pi-coding-agent` workspaces for development. Verify resolved paths. Do not commit path dependencies, lockfile changes, peer-range changes, build outputs, or trial data.
+
+Record exact trial commands, generated artifacts, resolved package paths, test results, visual sign-off status, and
+cleanup commands in the work item handoff.

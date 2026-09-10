@@ -3,7 +3,7 @@
 Opt-in visual-profile and queue extension shells for Pi. They are independently selectable package entries:
 
 - `packages/pi-visual-profile/index.ts`: profile commands, typed configuration, themes, and the visible footer prototype.
-- `packages/pi-visual-profile/queue.ts`: queue ownership shell. Queue delivery arrives in PI-32.
+- `packages/pi-visual-profile/queue.ts`: independently loadable durable queue delivery. It owns the new queue store, delivery lifecycle, compaction capture, and native status. PI-37 adds queue management commands and picker UI.
 
 ## Visual trial
 
