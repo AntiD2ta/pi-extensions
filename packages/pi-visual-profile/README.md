@@ -47,7 +47,7 @@ For a trusted project override, start Pi in that project and run:
 
 ## Offline queue smoke model
 
-The checkout includes `tests/faux-provider.ts` for deterministic local smoke tests. Load it explicitly with the queue extension. It registers `pi-visual-profile-faux/scripted`, uses no network or credentials, and returns one scripted response:
+The checkout includes `tests/faux-provider.ts` for deterministic local smoke tests. Load it explicitly with the queue extension. It registers `pi-visual-profile-faux/scripted`, uses no network or credentials, and has scripted responses for a prompt, compaction, and queued delivery:
 
 ```bash
 HOME="$(mktemp -d)" pi \

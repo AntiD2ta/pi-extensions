@@ -68,6 +68,12 @@ function readLease(path: string): { id: string; createdAt: number } | null {
 	} catch { return null; }
 }
 
+function writeLease(path: string, id: string, createdAt: number): void {
+	const temporaryPath = `${path}/lease.json.${process.pid}.${Date.now()}.tmp`;
+	writeFileSync(temporaryPath, JSON.stringify({ id, createdAt }));
+	renameSync(temporaryPath, `${path}/lease.json`);
+}
+
 export function currentQueueContext(cwd: string, sessionId?: string): QueueContext {
 	return normaliseContext({ cwd, ...(sessionId ? { sessionId } : {}) });
 }
@@ -92,21 +98,22 @@ export class QueueStore {
 	constructor(paths: QueueStorePaths) { this.paths = paths; }
 
 	acquireOwner(id: string, now = Date.now()): boolean {
-		mkdirSync(dirname(this.paths.ownerPath), { recursive: true });
-		try {
-			mkdirSync(this.paths.ownerPath);
-			writeFileSync(`${this.paths.ownerPath}/lease.json`, JSON.stringify({ id, createdAt: now }));
-			this.ownerId = id;
-			return true;
-		} catch (error) {
-			if (!isRecord(error) || error.code !== "EEXIST") throw error;
-			const lease = readLease(this.paths.ownerPath);
-			if (!lease || now - lease.createdAt > STALE_LOCK_MS) {
-				rmSync(this.paths.ownerPath, { recursive: true, force: true });
-				return this.acquireOwner(id, now);
+		return this.withLeaseOperationLock(() => {
+			mkdirSync(dirname(this.paths.ownerPath), { recursive: true });
+			while (true) {
+				try {
+					mkdirSync(this.paths.ownerPath);
+					writeLease(this.paths.ownerPath, id, now);
+					this.ownerId = id;
+					return true;
+				} catch (error) {
+					if (!isRecord(error) || error.code !== "EEXIST") throw error;
+					const lease = readLease(this.paths.ownerPath);
+					if (lease && now - lease.createdAt <= STALE_LOCK_MS) return false;
+					rmSync(this.paths.ownerPath, { recursive: true, force: true });
+				}
 			}
-			return false;
-		}
+		});
 	}
 
 	ownerReason(): string | null {
@@ -116,15 +123,19 @@ export class QueueStore {
 	}
 
 	refreshOwner(now = Date.now()): boolean {
-		if (!this.ownerId || this.ownerReason()) return false;
-		writeFileSync(`${this.paths.ownerPath}/lease.json`, JSON.stringify({ id: this.ownerId, createdAt: now }));
-		return true;
+		return this.withLeaseOperationLock(() => {
+			if (!this.ownerId || this.ownerReason()) return false;
+			writeLease(this.paths.ownerPath, this.ownerId, now);
+			return true;
+		});
 	}
 
 	releaseOwner(): void {
 		if (!this.ownerId) return;
-		if (readLease(this.paths.ownerPath)?.id === this.ownerId) rmSync(this.paths.ownerPath, { recursive: true, force: true });
-		this.ownerId = null;
+		this.withLeaseOperationLock(() => {
+			if (readLease(this.paths.ownerPath)?.id === this.ownerId) rmSync(this.paths.ownerPath, { recursive: true, force: true });
+			this.ownerId = null;
+		});
 	}
 
 	list(): QueueItem[] {
@@ -166,28 +177,51 @@ export class QueueStore {
 		return matches.length === 1 ? matches[0] ?? null : null;
 	}
 
+	requeueDelivering(error: string): number {
+		this.assertOwner();
+		let count = 0;
+		this.withWriteLock(() => {
+			const items = this.list();
+			for (const item of items) {
+				if (item.status !== "delivering") continue;
+				item.status = "queued";
+				item.error = error;
+				item.updatedAt = Date.now();
+				count++;
+			}
+			if (count) this.write(items);
+		});
+		return count;
+	}
+
 	activeItems(context: QueueContext): QueueItem[] { return this.list().filter((item) => isActiveForContext(item, context)); }
 	queuedDeliveryItems(context: QueueContext, intent?: QueueIntent): QueueItem[] { return this.activeItems(context).filter((item) => item.status === "queued" && (!intent || item.intent === intent)); }
 
-	readAliases(): Record<string, string> {
-		try {
-			const parsed = JSON.parse(readFileSync(this.paths.aliasesPath, "utf8"));
-			if (!isRecord(parsed)) return {};
-			return Object.fromEntries(Object.entries(parsed).flatMap(([alias, cwd]) => /^[a-zA-Z0-9_-]+$/.test(alias) && typeof cwd === "string" && cwd.trim() ? [[alias, resolve(cwd)]] : []));
-		} catch { return {}; }
-	}
-
-	setAlias(alias: string, cwd: string): void {
-		this.assertOwner();
-		if (!/^[a-zA-Z0-9_-]+$/.test(alias)) throw new Error("Alias must contain only letters, numbers, dashes, or underscores");
-		const temporaryPath = `${this.paths.aliasesPath}.${process.pid}.${Date.now()}.tmp`;
-		mkdirSync(dirname(this.paths.aliasesPath), { recursive: true });
-		writeFileSync(temporaryPath, JSON.stringify({ ...this.readAliases(), [alias]: resolve(cwd) }, null, 2) + "\n");
-		renameSync(temporaryPath, this.paths.aliasesPath);
-	}
-
 	private assertOwner(): void {
 		if (!this.ownerId || this.ownerReason()) throw new Error(this.ownerReason() ?? "Queue is read-only: this runtime is not the owner");
+	}
+
+	private withLeaseOperationLock<T>(fn: () => T): T {
+		const lockPath = `${this.paths.ownerPath}.lock`;
+		const deadline = Date.now() + LOCK_WAIT_MS;
+		mkdirSync(dirname(lockPath), { recursive: true });
+		while (true) {
+			try {
+				mkdirSync(lockPath);
+				writeLease(lockPath, this.ownerId ?? "lease-operation", Date.now());
+				break;
+			} catch (error) {
+				if (!isRecord(error) || error.code !== "EEXIST") throw error;
+				const lease = readLease(lockPath);
+				if (!lease || Date.now() - lease.createdAt > STALE_LOCK_MS) {
+					rmSync(lockPath, { recursive: true, force: true });
+					continue;
+				}
+				if (Date.now() >= deadline) throw new Error("Queue has an active queue lease operation");
+				sleep(25);
+			}
+		}
+		try { return fn(); } finally { rmSync(lockPath, { recursive: true, force: true }); }
 	}
 
 	private withWriteLock(fn: () => void): void {
@@ -197,7 +231,7 @@ export class QueueStore {
 		while (true) {
 			try {
 				mkdirSync(lockPath);
-				writeFileSync(`${lockPath}/lease.json`, JSON.stringify({ id: this.ownerId, createdAt: Date.now() }));
+				writeLease(lockPath, this.ownerId ?? "queue-write", Date.now());
 				break;
 			} catch (error) {
 				if (!isRecord(error) || error.code !== "EEXIST") throw error;
@@ -215,7 +249,14 @@ export class QueueStore {
 
 	private write(items: QueueItem[]): void {
 		const temporaryPath = `${this.paths.inboxPath}.${process.pid}.${Date.now()}.tmp`;
-		writeFileSync(temporaryPath, items.map((item) => JSON.stringify(item)).join("\n") + (items.length ? "\n" : ""));
+		const preserved = existsSync(this.paths.inboxPath)
+			? readFileSync(this.paths.inboxPath, "utf8").split("\n").filter((line) => {
+				if (!line.trim()) return false;
+				try { return !parseItem(JSON.parse(line)); } catch { return true; }
+			})
+			: [];
+		const lines = [...items.map((item) => JSON.stringify(item)), ...preserved];
+		writeFileSync(temporaryPath, lines.join("\n") + (lines.length ? "\n" : ""));
 		renameSync(temporaryPath, this.paths.inboxPath);
 	}
 }

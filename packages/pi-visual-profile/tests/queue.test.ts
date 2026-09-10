@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { QueueStore, currentQueueContext } from "../queue-store.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import queueExtension from "../queue.ts";
+import { QueueStore, currentQueueContext, getQueueStorePaths } from "../queue-store.ts";
 import { QueueDelivery } from "../queue-delivery.ts";
 
-function withStore(fn: (store: QueueStore, directory: string) => void): void {
+async function withStore(fn: (store: QueueStore, directory: string) => void | Promise<void>): Promise<void> {
 	const directory = mkdtempSync(join(tmpdir(), "visual-profile-queue-"));
 	try {
 		const store = new QueueStore({
@@ -15,7 +17,7 @@ function withStore(fn: (store: QueueStore, directory: string) => void): void {
 			ownerPath: join(directory, "owner"),
 		});
 		assert.equal(store.acquireOwner("owner-a"), true);
-		fn(store, directory);
+		await fn(store, directory);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
@@ -79,6 +81,137 @@ test("submission failure leaves the item recoverable", () => withStore((store) =
 	assert.equal(delivery.deliver(item), false);
 	assert.equal(store.get(item.id)?.status, "failed");
 	assert.equal(store.get(item.id)?.error, "offline");
+}));
+
+test("unconfirmed submission becomes queued with an observable error", async () => withStore(async (store) => {
+	const item = store.add({ text: "deliver this", source: { cwd: "/tmp/a" }, target: { kind: "global" }, intent: "follow-up" });
+	const delivery = new QueueDelivery(store, () => undefined, 10);
+
+	assert.equal(delivery.deliver(item), true);
+	await new Promise((resolve) => setTimeout(resolve, 25));
+	assert.equal(store.get(item.id)?.status, "queued");
+	assert.equal(store.get(item.id)?.error, "Pi did not start queued message delivery");
+}));
+
+test("a manual compaction captures its message and waits for Pi to settle before delivery", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "visual-profile-queue-extension-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const handlers = new Map<string, (event: never, context: never) => unknown>();
+	let editorFactory: unknown;
+	let compacted = false;
+	const sent: string[] = [];
+	const pi = {
+		on(event: string, handler: unknown) {
+			handlers.set(event, handler as (event: never, context: never) => unknown);
+		},
+		sendUserMessage(text: string) {
+			sent.push(text);
+		},
+	} as unknown as ExtensionAPI;
+	const editor = {
+		handleInput: (_data: string) => undefined,
+		getExpandedText: () => "/compact continue after compaction",
+		getText: () => "/compact continue after compaction",
+		setText: () => undefined,
+		addToHistory: () => undefined,
+	};
+	const context = {
+		cwd: "/tmp/queue-extension",
+		sessionManager: { getSessionId: () => "session-a" },
+		ui: {
+			setStatus: () => undefined,
+			notify: () => undefined,
+			getEditorComponent: () => () => editor,
+			setEditorComponent: (factory: unknown) => { editorFactory = factory; },
+		},
+		isIdle: () => true,
+		compact: () => { compacted = true; },
+	};
+	try {
+		process.env.PI_CODING_AGENT_DIR = directory;
+		queueExtension(pi);
+		handlers.get("session_start")?.({} as never, context as never);
+
+		assert.equal(typeof editorFactory, "function");
+		const wrapped = (editorFactory as (tui: never, theme: never, keybindings: never) => typeof editor)(undefined as never, undefined as never, {
+			matches: (_data: string, binding: string) => binding === "tui.input.submit",
+		} as never);
+		wrapped.handleInput("enter");
+
+		const store = new QueueStore(getQueueStorePaths(directory));
+		assert.equal(store.list()[0]?.text, "continue after compaction");
+		assert.equal(store.list()[0]?.intent, "post-compact");
+		assert.equal(compacted, true);
+		handlers.get("session_compact")?.({ willRetry: false } as never, context as never);
+		assert.deepEqual(sent, []);
+		await new Promise((resolve) => setTimeout(resolve, 75));
+		assert.deepEqual(sent, ["continue after compaction"]);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("a queue owner recovers persisted delivery before selecting the next item", () => withStore((store) => {
+	const item = store.add({ text: "deliver this", source: { cwd: "/tmp/a" }, target: { kind: "global" }, intent: "follow-up" });
+	store.update(item.id, { status: "delivering" });
+
+	assert.equal(store.requeueDelivering("Pi did not confirm queued message delivery"), 1);
+	assert.equal(store.get(item.id)?.status, "queued");
+	assert.equal(store.get(item.id)?.error, "Pi did not confirm queued message delivery");
+}));
+
+test("a non-owner does not install queue capture or native status", () => {
+	const directory = mkdtempSync(join(tmpdir(), "visual-profile-queue-two-owner-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const handlers = new Map<string, (event: never, context: never) => unknown>();
+	let editorFactory: unknown;
+	const statuses: unknown[] = [];
+	const pi = {
+		on(event: string, handler: unknown) {
+			handlers.set(event, handler as (event: never, context: never) => unknown);
+		},
+		sendUserMessage: () => undefined,
+	} as unknown as ExtensionAPI;
+	const context = {
+		cwd: "/tmp/queue-extension",
+		sessionManager: { getSessionId: () => "session-b" },
+		ui: {
+			setStatus: (...status: unknown[]) => statuses.push(status),
+			notify: () => undefined,
+			getEditorComponent: () => undefined,
+			setEditorComponent: (factory: unknown) => { editorFactory = factory; },
+		},
+		isIdle: () => true,
+		compact: () => undefined,
+	};
+	try {
+		process.env.PI_CODING_AGENT_DIR = directory;
+		new QueueStore(getQueueStorePaths(directory)).acquireOwner("session-a");
+		queueExtension(pi);
+		handlers.get("session_start")?.({} as never, context as never);
+
+		assert.equal(editorFactory, undefined);
+		assert.deepEqual(statuses, []);
+		assert.deepEqual(handlers.get("input")?.({ text: "/compact blocked" } as never, context as never), { action: "continue" });
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("an active lease operation prevents refresh or release from changing the owner", () => withStore((store, directory) => {
+	mkdirSync(join(directory, "owner.lock"));
+	writeFileSync(join(directory, "owner.lock", "lease.json"), JSON.stringify({ id: "lease-operation", createdAt: Date.now() }));
+
+	assert.throws(() => store.refreshOwner(), /active queue lease operation/);
+	assert.throws(() => store.releaseOwner(), /active queue lease operation/);
+	assert.throws(() => new QueueStore({ inboxPath: join(directory, "inbox.jsonl"), aliasesPath: join(directory, "aliases.json"), ownerPath: join(directory, "owner") }).acquireOwner("owner-b"), /active queue lease operation/);
+	rmSync(join(directory, "owner.lock"), { recursive: true, force: true });
+	store.releaseOwner();
+	assert.equal(new QueueStore({ inboxPath: join(directory, "inbox.jsonl"), aliasesPath: join(directory, "aliases.json"), ownerPath: join(directory, "owner") }).acquireOwner("owner-b"), true);
 }));
 
 test("a stale owner lock is recovered but an active operation lock is not stolen", () => withStore((store, directory) => {
