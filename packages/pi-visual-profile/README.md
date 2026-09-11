@@ -5,6 +5,8 @@ Opt-in visual-profile extension shell for Pi. Its single package entry is
 
 The footer and the queue belong to `pi-powerline-footer`, which owns both surfaces under ADR-0005. This package never renders a footer and never stores queue state.
 
+Enabling the profile currently only stores configuration. The surfaces it will style, tool cards, chat surfaces, and code-fence chrome, are not implemented yet, so `/visual-profile enable` changes nothing on screen. The bundled themes are selectable through `/settings` whether the profile is enabled or not.
+
 ## Visual trial
 
 Run this checkout from its root in a disposable Pi agent directory. This preserves your normal Pi configuration:
@@ -38,11 +40,10 @@ For a trusted project override, start Pi in that project and run:
 ## Sign-off checks
 
 1. Select both `pi-visual-profile-dark` and `pi-visual-profile-light` through `/settings`; confirm readable text, borders, user blocks, tool states, Markdown, and syntax colors.
-2. After `/visual-profile enable`, confirm the compact footer shows the profile mode, glyph mode, and current Git branch.
-3. Confirm `unicode`, `ascii`, and `nerd-font` repaint the footer immediately. In ASCII mode, the footer must contain only ASCII glyphs.
-4. Confirm `/visual-profile disable` restores Pi's native footer.
-5. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, capability support, and native degradation.
-6. Restart Pi with the same `trial_home`; confirm the selected profile and glyph settings persist.
+2. Confirm `/visual-profile enable`, `disable`, and `glyph` report the saved setting and leave the rendered UI unchanged, including the footer.
+3. With `pi-powerline-footer` also installed, confirm its footer renders identically before and after `/visual-profile enable`. Without it, confirm Pi's native footer renders unchanged.
+4. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, and that the profile claims no footer and has no visible surface yet.
+5. Restart Pi with the same `trial_home`; confirm the selected profile and glyph settings persist.
 
 ## Offline smoke model
 

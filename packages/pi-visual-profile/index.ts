@@ -1,7 +1,6 @@
 import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import { join } from "node:path";
-import { type GlyphMode, type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
+import { type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
 import { formatDoctor } from "./doctor.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
@@ -17,35 +16,6 @@ function configPaths(cwd: string): { global: string; project: string } {
 function effectiveConfig(ctx: ExtensionContext): VisualProfileConfig {
 	const paths = configPaths(ctx.cwd);
 	return loadConfig(paths.global, ctx.isProjectTrusted() ? paths.project : undefined);
-}
-
-function glyph(mode: GlyphMode, unicode: string, nerdFont: string, ascii: string): string {
-	if (mode === "ascii") return ascii;
-	return mode === "nerd-font" ? nerdFont : unicode;
-}
-
-function applyProfile(ctx: ExtensionContext): boolean {
-	const config = effectiveConfig(ctx);
-	if (!config.enabled || ctx.mode !== "tui") return false;
-
-	ctx.ui.setFooter((tui, theme, footerData) => ({
-		invalidate() {},
-		dispose: footerData.onBranchChange(() => tui.requestRender()),
-		render(width: number): string[] {
-			const separator = config.separatorStyle === "none"
-				? " "
-				: config.separatorStyle === "dot"
-					? ` ${glyph(config.glyphMode, "•", "●", ".")} `
-					: config.separatorStyle === "powerline"
-						? ` ${glyph(config.glyphMode, "▶", "", ">>")} `
-						: ` ${glyph(config.glyphMode, "›", "", ">")} `;
-			const branch = footerData.getGitBranch() ?? "no branch";
-			const themeText = config.themeMode === "inherit" ? "inherit" : "profile";
-			const text = ` visual ${themeText}${separator}${config.glyphMode}${separator}${branch} `;
-			return [truncateToWidth(theme.bg("toolPendingBg", theme.fg("toolTitle", text)), width)];
-		},
-	}));
-	return true;
 }
 
 function save(ctx: ExtensionContext, patch: Partial<VisualProfileConfig>, local: boolean): boolean {
@@ -79,12 +49,6 @@ function doctor(ctx: ExtensionContext): string {
 }
 
 export default function (pi: ExtensionAPI) {
-	let ownsFooter = false;
-
-	pi.on("session_start", (_event, ctx) => {
-		ownsFooter = applyProfile(ctx);
-	});
-
 	pi.registerCommand("visual-profile", {
 		description: "Show or configure the opt-in visual profile.",
 		handler: async (args, ctx) => {
@@ -105,15 +69,11 @@ export default function (pi: ExtensionAPI) {
 						? { enabled: false }
 						: { themeMode: "inherit" as const };
 				if (!save(ctx, patch, local)) return;
-				const nextOwnsFooter = applyProfile(ctx);
-				if (!nextOwnsFooter && ownsFooter) ctx.ui.setFooter(undefined);
-				ownsFooter = nextOwnsFooter;
 				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
 			if (command === "glyph" && (value === "unicode" || value === "nerd-font" || value === "ascii")) {
 				if (!save(ctx, { glyphMode: value }, local)) return;
-				ownsFooter = applyProfile(ctx);
 				ctx.ui.notify(`Glyph mode set to ${value}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
