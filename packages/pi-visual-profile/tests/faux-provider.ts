@@ -8,9 +8,9 @@ export default function (pi: ExtensionAPI) {
 		models: [{ id: "scripted", name: "Visual-profile scripted test model", reasoning: false }],
 	});
 	faux.setResponses([
-		fauxAssistantMessage(fauxText("Faux response.")),
-		fauxAssistantMessage(fauxText("Compaction response.")),
-		fauxAssistantMessage(fauxText("Queued response.")),
+		fauxAssistantMessage(fauxText("First faux response.")),
+		fauxAssistantMessage(fauxText("Second faux response.")),
+		fauxAssistantMessage(fauxText("Third faux response.")),
 	]);
 	pi.registerProvider(faux.provider);
 }

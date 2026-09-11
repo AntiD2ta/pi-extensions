@@ -33,14 +33,14 @@ async function loadExtensionPaths(packageDir: string, agentDir: string) {
 	return resourceLoader.getExtensions().extensions.map((extension) => extension.path).sort();
 }
 
-test("root manifest declares both visual-profile entries and its themes", () => {
+test("root manifest declares one entry per package and its themes", () => {
 	assert.deepEqual(rootManifest.pi, {
-		extensions: ["packages/*/index.ts", "packages/*/queue.ts"],
+		extensions: ["packages/*/index.ts"],
 		themes: ["packages/*/themes/*.json"],
 	});
 });
 
-test("visual-profile package contributes independently selectable entries and themes", async (t) => {
+test("visual-profile package contributes one entry and its themes", async (t) => {
 	const fixture = createPackageFixture();
 	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
 	writeFileSync(join(fixture.agentDir, "settings.json"), JSON.stringify({ packages: [repositoryRoot] }));
@@ -53,10 +53,7 @@ test("visual-profile package contributes independently selectable entries and th
 			.map((extension) => extension.path)
 			.filter((path) => path.includes("pi-visual-profile"))
 			.sort(),
-		[
-			join(repositoryRoot, "packages", "pi-visual-profile", "index.ts"),
-			join(repositoryRoot, "packages", "pi-visual-profile", "queue.ts"),
-		],
+		[join(repositoryRoot, "packages", "pi-visual-profile", "index.ts")],
 	);
 	const visualProfileThemes = resourceLoader.getThemes().themes
 		.map((theme) => theme.name)

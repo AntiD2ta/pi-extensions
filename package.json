@@ -9,8 +9,7 @@
   ],
   "pi": {
     "extensions": [
-      "packages/*/index.ts",
-      "packages/*/queue.ts"
+      "packages/*/index.ts"
     ],
     "themes": [
       "packages/*/themes/*.json"
