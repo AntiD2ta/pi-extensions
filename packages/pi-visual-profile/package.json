@@ -1,7 +1,7 @@
 {
   "name": "pi-visual-profile",
   "version": "0.1.0",
-  "description": "Opt-in visual profile and queue extension shell for Pi",
+  "description": "Opt-in visual profile extension shell for Pi",
   "type": "module",
   "files": [
     "*.ts",
@@ -20,8 +20,7 @@
   },
   "pi": {
     "extensions": [
-      "./index.ts",
-      "./queue.ts"
+      "./index.ts"
     ],
     "themes": [
       "./themes/*.json"
