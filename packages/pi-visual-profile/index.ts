@@ -35,7 +35,7 @@ function parseLocal(args: string): { local: boolean; values: string[] } {
 	return { local: values.includes("--local"), values: values.filter((value) => value !== "--local") };
 }
 
-function doctor(ctx: ExtensionContext): string {
+function doctor(ctx: ExtensionContext, toolRendererProfileSupported: boolean): string {
 	const paths = configPaths(ctx.cwd);
 	const themes = new Set(ctx.ui.getAllThemes().map((theme) => theme.name));
 	const projectTrusted = ctx.isProjectTrusted();
@@ -46,6 +46,7 @@ function doctor(ctx: ExtensionContext): string {
 		lightThemeAvailable: themes.has(PROFILE_THEME_LIGHT),
 		globalPath: paths.global,
 		projectPath: projectTrusted ? paths.project : undefined,
+		toolRendererProfileSupported,
 	});
 }
 
@@ -61,10 +62,10 @@ export default function (pi: ExtensionAPI) {
 		releaseToolRendererProfile?.();
 		releaseToolRendererProfile = undefined;
 		const config = effectiveConfig(ctx);
-		if (config.enabled && ctx.mode === "tui") {
-			releaseToolRendererProfile = profileAPI.activateToolRendererProfile?.(
-			createToolRendererProfile(config.toolCardStyle),
-		);
+		if (config.enabled && ctx.mode === "tui" && profileAPI.activateToolRendererProfile) {
+			releaseToolRendererProfile = profileAPI.activateToolRendererProfile(
+				createToolRendererProfile(config.toolCardStyle, ctx.ui.theme),
+			);
 		}
 	};
 
@@ -87,7 +88,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (command === "doctor") {
-				ctx.ui.notify(doctor(ctx), "info");
+				ctx.ui.notify(doctor(ctx, Boolean(profileAPI.activateToolRendererProfile)), "info");
 				return;
 			}
 			if (command === "enable" || command === "disable" || command === "inherit") {
@@ -98,7 +99,8 @@ export default function (pi: ExtensionAPI) {
 						: { themeMode: "inherit" as const };
 				if (!save(ctx, patch, local)) return;
 				apply(ctx);
-				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.`, "info");
+				const unavailable = command === "enable" && !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
+				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
 			if (command === "glyph" && (value === "unicode" || value === "nerd-font" || value === "ascii")) {
@@ -110,7 +112,8 @@ export default function (pi: ExtensionAPI) {
 			if (command === "cards" && (value === "boxed" || value === "minimal")) {
 				if (!save(ctx, { toolCardStyle: value }, local)) return;
 				apply(ctx);
-				ctx.ui.notify(`Tool cards set to ${value}${local ? " locally" : " globally"}.`, "info");
+				const unavailable = !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
+				ctx.ui.notify(`Tool cards set to ${value}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
 			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|doctor] [--local]", "error");

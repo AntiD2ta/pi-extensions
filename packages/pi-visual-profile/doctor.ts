@@ -7,6 +7,7 @@ export interface DoctorReport {
 	lightThemeAvailable: boolean;
 	globalPath: string;
 	projectPath?: string;
+	toolRendererProfileSupported: boolean;
 }
 
 export function formatDoctor(report: DoctorReport): string {
@@ -31,7 +32,7 @@ export function formatDoctor(report: DoctorReport): string {
 		"",
 		"Compatibility",
 		"  footer: never claimed",
-		"  tool renderer profile: supported",
+		`  tool renderer profile: ${report.toolRendererProfileSupported ? "supported" : "unavailable"}`,
 		"  unsupported surfaces: native Pi rendering",
 		"",
 		"Configuration files",
