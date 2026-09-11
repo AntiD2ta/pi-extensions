@@ -117,7 +117,6 @@ export interface CustomStatusItem {
   statusKey: string;
   position: CustomItemPosition;
   color?: ColorValue;
-  selfColorize: boolean;
   prefix?: string;
   hideWhenMissing: boolean;
   excludeFromExtensionStatuses: boolean;

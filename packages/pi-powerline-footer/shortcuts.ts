@@ -48,6 +48,14 @@ export function matchesConfiguredShortcut(data: string, shortcut: string | null 
   return matchesKey(data, shortcut as KeyId);
 }
 
-export function matchesStashShortcutInput(data: string): boolean {
-  return !isKeyRelease(data) && matchesKey(data, "super+b");
+export function matchesStashShortcutInput(data: string, options: { includePrintableSharpS?: boolean } = {}): boolean {
+  if (isKeyRelease(data)) return false;
+
+  return (options.includePrintableSharpS === true && data === "ß")
+    || data === "\x1bs"
+    || data === "\x1bS"
+    || /^\x1b\[(?:83|115)(?::\d*)?(?::\d*)?;3(?::\d+)?u$/.test(data)
+    || data === "\x1b[27;3;115~"
+    || data === "\x1b[27;3;83~"
+    || matchesKey(data, "alt+s");
 }

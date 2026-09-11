@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import childProcess from "node:child_process";
-import { syncBuiltinESMExports } from "node:module";
 
-import { getGitStatus, invalidateGitStatus, readOnlyGitEnv, waitForGitUpdates } from "../git-status.ts";
-const completionSource = readFileSync(new URL("../bash-mode/completion.ts", import.meta.url), "utf-8");
+import { readOnlyGitEnv } from "../git-status.ts";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Background fetches spawn git with up to 500ms timeouts; give them room.
+const FETCH_SETTLE_MS = 1200;
 
 test("read-only git commands opt out of git's optional index lock", () => {
   const env = readOnlyGitEnv({ PATH: "/usr/bin" });
@@ -17,36 +19,6 @@ test("read-only git commands opt out of git's optional index lock", () => {
 
 test("readOnlyGitEnv overrides an inherited GIT_OPTIONAL_LOCKS=1", () => {
   assert.equal(readOnlyGitEnv({ GIT_OPTIONAL_LOCKS: "1" }).GIT_OPTIONAL_LOCKS, "0");
-});
-
-test("footer git polling hides Windows child consoles while preserving read-only env", async (t) => {
-  const spawn = childProcess.spawn;
-  const calls: Parameters<typeof spawn>[] = [];
-  t.mock.method(childProcess, "spawn", (...args: Parameters<typeof spawn>) => {
-    calls.push(args);
-    return spawn(...args);
-  });
-  syncBuiltinESMExports();
-  try {
-    invalidateGitStatus();
-    getGitStatus("main");
-    await waitForGitUpdates();
-    assert.ok(calls.length > 0);
-    for (const [, , options] of calls) {
-      assert.equal(options?.windowsHide, true);
-      assert.equal(options?.env?.GIT_OPTIONAL_LOCKS, "0");
-    }
-  } finally {
-    t.mock.restoreAll();
-    syncBuiltinESMExports();
-  }
-});
-
-test("bash git completions hide Windows child consoles", () => {
-  assert.match(
-    completionSource,
-    /execFile\("git", args, \{ cwd, encoding: "utf8", signal, windowsHide: true \}/,
-  );
 });
 
 // Guards the regression end to end, via a `git` shim on PATH: the footer polls
@@ -70,9 +42,12 @@ test("the git process the footer spawns receives GIT_OPTIONAL_LOCKS=0", { skip: 
   // for this bug; force the opposite so we can't inherit a false pass.
   process.env.GIT_OPTIONAL_LOCKS = "1";
   try {
+    // Imported here so the module reads the shimmed PATH when it spawns.
+    const { getGitStatus, invalidateGitStatus, invalidateGitBranch } = await import("../git-status.ts");
     invalidateGitStatus();
+    invalidateGitBranch();
     getGitStatus("main");
-    await waitForGitUpdates();
+    await sleep(FETCH_SETTLE_MS);
   } finally {
     process.env.PATH = originalPath;
     if (originalOptionalLocks === undefined) delete process.env.GIT_OPTIONAL_LOCKS;

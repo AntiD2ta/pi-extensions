@@ -136,9 +136,9 @@ const pathSegment: StatusLineSegment = {
  * enabled and a remote is known, otherwise the plain branch icon. An
  * unrecognized remote falls back to the generic git logo.
  */
-function resolveBranchIcon(icons: IconSet, hostIcon: boolean, cwd: string | undefined): string {
+function resolveBranchIcon(icons: IconSet, hostIcon: boolean): string {
   if (!hostIcon) return icons.branch;
-  const host = getGitRemoteHost(cwd);
+  const host = getGitRemoteHost();
   const byHost: Record<GitHost, string> = {
     github: icons.github,
     gitlab: icons.gitlab,
@@ -168,7 +168,7 @@ const gitSegment: StatusLineSegment = {
     let content = "";
     if (showBranch && branch) {
       // Color just the branch name (icon + branch text)
-      const branchIcon = resolveBranchIcon(icons, opts.hostIcon === true, ctx.cwd);
+      const branchIcon = resolveBranchIcon(icons, opts.hostIcon === true);
       content = color(ctx, branchColor, withIcon(branchIcon, branch));
     }
 
@@ -537,7 +537,7 @@ function renderCustomSegment(id: `custom:${string}`, ctx: SegmentContext): Rende
   if (!custom) return { content: "", visible: false };
 
   const rawStatus = ctx.extensionStatuses.get(custom.statusKey);
-  const normalizedStatus = rawStatus ? normalizeExtensionStatusValue(rawStatus, custom.selfColorize) : null;
+  const normalizedStatus = rawStatus ? normalizeExtensionStatusValue(rawStatus) : null;
   if (!normalizedStatus) {
     return custom.hideWhenMissing ? { content: "", visible: false } : { content: custom.prefix ?? custom.id, visible: true };
   }
@@ -546,7 +546,7 @@ function renderCustomSegment(id: `custom:${string}`, ctx: SegmentContext): Rende
   if (custom.prefix) {
     content = `${custom.prefix}${SEP_DOT}${content}`;
   }
-  if (custom.color && !custom.selfColorize) {
+  if (custom.color) {
     content = applyColor(ctx.theme, custom.color, content);
   }
 

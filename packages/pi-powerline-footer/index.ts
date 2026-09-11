@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { CURSOR_MARKER, isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 import type { ColorScheme, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
@@ -28,7 +28,6 @@ import { getAgentPath } from "./paths.ts";
 import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, mergeSegmentOptions, mergeSegmentsWithCustomItems, nextPowerlineSettingWithOptions, nextPowerlineSettingWithPreset, parsePowerlineConfig } from "./powerline-config.ts";
 import { getSeparator } from "./separators.ts";
 import { renderSegment } from "./segments.ts";
-import { resolveThinkingLevelSelection } from "./thinking-level.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
@@ -67,7 +66,6 @@ import {
   setVibeWorkingMessageColor,
 } from "./working-vibes.ts";
 import { PowerlineQueueStore, currentQueueContext, formatQueueDeliveryText, parseCompactQueuedPrompt } from "./queue/store.ts";
-import { reply } from "./quote-reply.ts";
 import type { PowerlineQueueItem, QueueContext, QueueIntent, QueueSummary, QueueTarget } from "./queue/types.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -87,7 +85,7 @@ let config: PowerlineConfig = {
   invalidPlacement: null,
   welcome: true,
   welcomeMode: "overlay",
-  queue: { compactPromptMode: "queue" },
+  stashSharpSShortcut: false,
   workingVibes: {},
 };
 
@@ -101,7 +99,6 @@ export interface PowerlineShortcuts {
   copyEditor: ShortcutBinding;
   cutEditor: ShortcutBinding;
   queueOpen: ShortcutBinding;
-  reply: ShortcutBinding;
   editorStart: ShortcutBinding;
   editorEnd: ShortcutBinding;
 }
@@ -112,20 +109,15 @@ type PowerlineShortcutAction =
   | { kind: "copyEditor" }
   | { kind: "cutEditor" }
   | { kind: "queueOpen" }
-  | { kind: "reply" }
   | { kind: "bashMode" };
 const STASH_HISTORY_LIMIT = 12;
 const PROJECT_PROMPT_HISTORY_LIMIT = 50;
-const PROJECT_PROMPT_HISTORY_FILE_LIMIT = 50;
-const PROJECT_PROMPT_HISTORY_MAX_BYTES = 3 * 1024 * 1024;
-const PROJECT_PROMPT_HISTORY_FILE_MAX_BYTES = 64 * 1024;
 const STASH_PREVIEW_WIDTH = 72;
 const DEFAULT_SHORTCUTS: PowerlineShortcuts = {
   stashHistory: "ctrl+alt+h",
   copyEditor: "ctrl+alt+c",
   cutEditor: "ctrl+alt+x",
   queueOpen: "ctrl+alt+q",
-  reply: null,
   editorStart: "super+shift+up",
   editorEnd: "super+shift+down",
 };
@@ -135,7 +127,7 @@ const DEFAULT_BASH_MODE_SETTINGS = {
   transcriptMaxLines: 2000,
   transcriptMaxBytes: 512 * 1024,
 } as const satisfies BashModeSettings;
-const SHORTCUT_KEYS: PowerlineShortcutKey[] = ["stashHistory", "copyEditor", "cutEditor", "queueOpen", "reply", "editorStart", "editorEnd"];
+const SHORTCUT_KEYS: PowerlineShortcutKey[] = ["stashHistory", "copyEditor", "cutEditor", "queueOpen", "editorStart", "editorEnd"];
 const APP_RESERVED_SHORTCUTS = [
   "escape",
   "ctrl+c",
@@ -164,6 +156,7 @@ const APP_RESERVED_SHORTCUTS = [
   "ctrl+x",
   "ctrl+u",
 ] as const;
+const EXTRA_RESERVED_SHORTCUTS = ["alt+s"] as const;
 const SHORTCUT_MODIFIER_ORDER = ["ctrl", "alt", "super", "shift"] as const;
 const SHORTCUT_MODIFIERS = new Set<string>(SHORTCUT_MODIFIER_ORDER);
 const SHORTCUT_NAMED_KEYS = new Set([
@@ -419,56 +412,19 @@ function getPromptHistoryText(content: unknown): string {
   return parts.join("\n").replace(/\s+/g, " ").trim();
 }
 
-function readFileTail(filePath: string, size: number, maxBytes: number): string {
-  const bytesToRead = Math.min(size, maxBytes);
-  if (bytesToRead === 0) {
-    return "";
-  }
-
-  const fd = openSync(filePath, "r");
-  try {
-    const buffer = Buffer.allocUnsafe(bytesToRead);
-    const bytesRead = readSync(fd, buffer, 0, bytesToRead, size - bytesToRead);
-    const text = buffer.toString("utf8", 0, bytesRead);
-    if (size <= bytesToRead) {
-      return text;
-    }
-
-    const firstNewline = text.indexOf("\n");
-    return firstNewline === -1 ? "" : text.slice(firstNewline + 1);
-  } finally {
-    closeSync(fd);
-  }
-}
-
 function readRecentProjectPrompts(cwd: string, limit: number): string[] {
   const sessionsPath = getProjectSessionsPath(cwd);
   if (!existsSync(sessionsPath)) {
     return [];
   }
 
-  const files = readdirSync(sessionsPath)
-    .filter((fileName) => fileName.endsWith(".jsonl"))
-    .map((fileName) => {
-      const filePath = join(sessionsPath, fileName);
-      const stats = statSync(filePath);
-      return { fileName, filePath, mtimeMs: stats.mtimeMs, size: stats.size };
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.fileName.localeCompare(a.fileName))
-    .slice(0, PROJECT_PROMPT_HISTORY_FILE_LIMIT);
+  const promptEntries: { text: string; timestamp: number }[] = [];
+  const fileNames = readdirSync(sessionsPath)
+    .filter((fileName) => fileName.endsWith(".jsonl"));
 
-  const prompts: string[] = [];
-  const seen = new Set<string>();
-  let remainingBytes = PROJECT_PROMPT_HISTORY_MAX_BYTES;
-
-  for (const file of files) {
-    if (remainingBytes <= 0) {
-      break;
-    }
-
-    const bytesToRead = Math.min(file.size, PROJECT_PROMPT_HISTORY_FILE_MAX_BYTES, remainingBytes);
-    remainingBytes -= bytesToRead;
-    const lines = readFileTail(file.filePath, file.size, bytesToRead).split("\n");
+  for (const fileName of fileNames) {
+    const filePath = join(sessionsPath, fileName);
+    const lines = readFileSync(filePath, "utf-8").split("\n");
 
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
@@ -481,7 +437,7 @@ function readRecentProjectPrompts(cwd: string, limit: number): string[] {
         entry = JSON.parse(line);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse session file ${file.filePath}: ${message}`, { cause: error });
+        throw new Error(`Failed to parse session file ${filePath}: ${message}`, { cause: error });
       }
 
       if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message) || entry.message.role !== "user") {
@@ -493,15 +449,29 @@ function readRecentProjectPrompts(cwd: string, limit: number): string[] {
         continue;
       }
 
-      if (seen.has(text)) {
-        continue;
-      }
+      const timestamp = typeof entry.message.timestamp === "number"
+        ? entry.message.timestamp
+        : typeof entry.timestamp === "string"
+          ? Date.parse(entry.timestamp)
+          : 0;
 
-      seen.add(text);
-      prompts.push(text);
-      if (prompts.length >= limit) {
-        return prompts;
-      }
+      promptEntries.push({ text, timestamp: Number.isFinite(timestamp) ? timestamp : 0 });
+    }
+  }
+
+  promptEntries.sort((a, b) => b.timestamp - a.timestamp);
+
+  const prompts: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of promptEntries) {
+    if (seen.has(entry.text)) {
+      continue;
+    }
+
+    seen.add(entry.text);
+    prompts.push(entry.text);
+    if (prompts.length >= limit) {
+      return prompts;
     }
   }
 
@@ -610,7 +580,7 @@ function writePowerlinePresetSetting(preset: StatusLinePreset, cwd: string = pro
 
 function writePowerlineOptionSetting(
   cwd: string,
-  updates: Partial<Pick<PowerlineConfig, "welcome" | "placement">>,
+  updates: Partial<Pick<PowerlineConfig, "welcome" | "stashSharpSShortcut" | "placement">>,
   currentPreset: StatusLinePreset,
 ): boolean {
   return writePowerlineSetting(cwd, (existingPowerlineSetting) => (
@@ -671,7 +641,10 @@ function normalizeShortcut(value: string): string {
 }
 
 function reservedShortcuts(): Set<string> {
-  const shortcuts = new Set<string>(APP_RESERVED_SHORTCUTS.map(normalizeShortcut));
+  const shortcuts = new Set<string>([
+    ...EXTRA_RESERVED_SHORTCUTS,
+    ...APP_RESERVED_SHORTCUTS,
+  ].map(normalizeShortcut));
 
   for (const definition of Object.values(TUI_KEYBINDINGS)) {
     const defaultKeys = definition.defaultKeys;
@@ -752,15 +725,15 @@ function findShortcutReplacement(key: PowerlineShortcutKey, used: Set<string>): 
   if (preferred && !used.has(shortcutUsageKey(preferred))) {
     return preferred;
   }
-  return null;
-}
 
-function shortcutBelongsToOtherDefault(key: PowerlineShortcutKey, shortcut: string): boolean {
-  const usageKey = shortcutUsageKey(shortcut);
-  return SHORTCUT_KEYS.some((shortcutKey) => {
-    const defaultShortcut = DEFAULT_SHORTCUTS[shortcutKey];
-    return shortcutKey !== key && defaultShortcut !== null && shortcutUsageKey(defaultShortcut) === usageKey;
-  });
+  for (const shortcutKey of SHORTCUT_KEYS) {
+    const candidate = DEFAULT_SHORTCUTS[shortcutKey];
+    if (candidate && !used.has(shortcutUsageKey(candidate))) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 function bashToggleShortcutReservation(settings: Record<string, unknown>): ShortcutBinding {
@@ -804,7 +777,7 @@ export function resolveShortcutConfig(settings: Record<string, unknown>): Powerl
 
     const configuredUsageKey = shortcutUsageKey(configured);
 
-    if (!used.has(configuredUsageKey) && !shortcutBelongsToOtherDefault(key, configured)) {
+    if (!used.has(configuredUsageKey)) {
       used.add(configuredUsageKey);
       continue;
     }
@@ -812,7 +785,6 @@ export function resolveShortcutConfig(settings: Record<string, unknown>): Powerl
     const replacement = findShortcutReplacement(key, used);
     if (!replacement) {
       console.debug(`[powerline-footer] Shortcut conflict for ${key}: "${configured}" is already in use`);
-      resolved[key] = null;
       continue;
     }
 
@@ -1090,12 +1062,20 @@ function buildContentFromParts(
 function computeResponsiveLayout(
   ctx: SegmentContext,
   presetDef: ReturnType<typeof getPreset>,
-  allSegmentIds: StatusLineSegmentId[],
   availableWidth: number
 ): { topContent: string; secondaryContent: string } {
   const separatorStyle = config.separator ?? presetDef.separator;
   const separatorDef = getSeparator(separatorStyle);
   const sepWidth = visibleWidth(separatorDef.left) + 2; // separator + spaces around it
+
+  // Get all segments: primary first, then secondary
+  const mergedSegments = mergeSegmentsWithCustomItems(presetDef, config.customItems, {
+    layout: config.layout,
+    disabledSegments: config.disabledSegments,
+  });
+  const primaryIds = [...mergedSegments.leftSegments, ...mergedSegments.rightSegments];
+  const secondaryIds = mergedSegments.secondarySegments;
+  const allSegmentIds = [...primaryIds, ...secondaryIds];
 
   // Render all segments and get their widths
   const renderedSegments: { content: string; width: number }[] = [];
@@ -1189,7 +1169,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let sessionGeneration = 0;
   let currentCtx: any = null;
   let footerDataRef: ReadonlyFooterDataProvider | null = null;
-  let footerDataCwd: string | null = null;
   let getThinkingLevelFn: (() => string) | null = null;
   let currentThinkingLevel: string | null = null;
   let liveAssistantUsage: SessionAssistantUsage | null = null;
@@ -1201,8 +1180,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let dismissWelcomeOverlay: (() => void) | null = null;
   let welcomeHeaderActive = false;
   let welcomeHeaderAdditive = false;
-  let welcomeRequest: AbortController | null = null;
-  let welcomeTimer: ReturnType<typeof setTimeout> | null = null;
+  let welcomeOverlayShouldDismiss = false;
   let lastUserPrompt = "";
   let showLastPrompt = true;
   let lastPromptRenderCache: {
@@ -1228,8 +1206,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     summary: QueueSummary;
   } | null = null;
   let powerlineCompacting = false;
-  let compactionGeneration = 0;
-  let postCompactionDelivery: { generation: number; context: QueueContext } | null = null;
+  let deliverAfterRetrySettles = false;
   let queueDeliveryTimer: ReturnType<typeof setTimeout> | null = null;
   const pendingQueueDeliveries = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> }>();
 
@@ -1611,38 +1588,18 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
   }
 
-  function cancelPostCompactionDelivery(): void {
+  function schedulePostCompactionDelivery(ctx: any): void {
     if (queueDeliveryTimer) clearTimeout(queueDeliveryTimer);
-    queueDeliveryTimer = null;
-    postCompactionDelivery = null;
-  }
-
-  function schedulePostCompactionDelivery(): void {
-    if (!postCompactionDelivery) return;
-    if (queueDeliveryTimer) clearTimeout(queueDeliveryTimer);
-    const pending = postCompactionDelivery;
+    const queueContext = getQueueContext(ctx);
+    const scheduledGeneration = sessionGeneration;
     queueDeliveryTimer = setTimeout(() => {
       queueDeliveryTimer = null;
-      if (pending !== postCompactionDelivery) return;
-      if (pending.generation !== sessionGeneration || !currentCtx) {
-        cancelPostCompactionDelivery();
-        return;
-      }
+      if (scheduledGeneration !== sessionGeneration) return;
       try {
-        // Busy readiness checks must not read the inbox, render, or enqueue a late follow-up.
-        if (!currentCtx.isIdle()) {
-          schedulePostCompactionDelivery();
-          return;
-        }
-        const items = queueStore.queuedDeliveryItems(pending.context, "post-compact");
-        const item = items[0];
-        if (items.length <= 1) cancelPostCompactionDelivery();
-        if (!item) return;
-        deliverQueueItem(currentCtx, item);
-        schedulePostCompactionDelivery();
+        const item = queueStore.queuedDeliveryItems(queueContext, "post-compact")[0];
+        if (item) deliverQueueItem(ctx, item);
       } catch (error) {
         if (!isStaleExtensionContextError(error)) throw error;
-        cancelPostCompactionDelivery();
         currentCtx = null;
       }
     }, 50);
@@ -1660,9 +1617,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function finishFailedCompaction(ctx: any, errorMessage: string): void {
-    compactionGeneration++;
     powerlineCompacting = false;
-    cancelPostCompactionDelivery();
+    deliverAfterRetrySettles = false;
     blockPostCompactionQueue(ctx, errorMessage);
     requestQueueRender();
   }
@@ -1750,24 +1706,18 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   // Track session start
   pi.on("session_start", async (event, ctx) => {
-    dismissWelcome(currentCtx ?? ctx);
     shellSession?.dispose();
     shellSession = null;
     sessionGeneration++;
     sessionStartTime = Date.now();
     currentCtx = ctx;
-    footerDataRef = null;
-    footerDataCwd = null;
-    invalidateGitStatus();
-    invalidateGitBranch();
-    resetLayoutCache();
     customCompactionEnabled = detectCustomCompactionEnabled(ctx.cwd);
     lastUserPrompt = "";
     isStreaming = false;
     liveAssistantUsage = null;
     approximateContextUsage = event.reason === "reload" ? estimateUnknownContextUsage(ctx) : null;
     powerlineCompacting = false;
-    cancelPostCompactionDelivery();
+    deliverAfterRetrySettles = false;
     stashedEditorText = null;
 
     const settings = readSettings(ctx.cwd);
@@ -1811,7 +1761,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     sessionGeneration++;
-    dismissWelcome(ctx);
+    dismissWelcomeOverlay?.();
+    dismissWelcomeOverlay = null;
+    welcomeHeaderActive = false;
+    welcomeOverlayShouldDismiss = false;
     statusRenderScheduler.cancel();
     restoreFooterStatusRepaintHook?.();
     restoreFooterStatusRepaintHook = null;
@@ -1819,9 +1772,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     stashShortcutInputUnsubscribe = null;
     shellSession?.dispose();
     shellSession = null;
-    cancelPostCompactionDelivery();
+    if (queueDeliveryTimer) {
+      clearTimeout(queueDeliveryTimer);
+      queueDeliveryTimer = null;
+    }
     requeuePendingQueueDeliveries("Session ended before queued message started");
     powerlineCompacting = false;
+    deliverAfterRetrySettles = false;
     bashModeActive = false;
     currentCtx = null;
     footerDataRef = null;
@@ -1883,7 +1840,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   pi.on("thinking_level_select", async (event, ctx) => {
     currentCtx = ctx;
-    currentThinkingLevel = resolveThinkingLevelSelection(event.level, getThinkingLevelFn?.());
+    currentThinkingLevel = getThinkingLevelFn?.() ?? (typeof event.level === "string" ? event.level : null);
     requestImmediateStatusRender({ deferDuringTyping: false });
   });
 
@@ -1959,8 +1916,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     liveAssistantUsage = null;
     approximateContextUsage = null;
     coreContextUsageCache.reset();
-    compactionGeneration++;
-    cancelPostCompactionDelivery();
     requestQueueRender();
   });
 
@@ -1971,22 +1926,20 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     liveAssistantUsage = null;
     approximateContextUsage = estimateUnknownContextUsage(ctx);
     coreContextUsageCache.reset();
-    compactionGeneration++;
-    cancelPostCompactionDelivery();
-    const context = getQueueContext(ctx);
-    if (queueStore.queuedDeliveryItems(context, "post-compact").length > 0) {
-      postCompactionDelivery = { generation: sessionGeneration, context };
-      schedulePostCompactionDelivery();
+    if (event.willRetry) {
+      deliverAfterRetrySettles = true;
+    } else {
+      deliverAfterRetrySettles = false;
+      schedulePostCompactionDelivery(ctx);
     }
     requestQueueRender();
   });
 
-  pi.on("session_compact_failed", async (event, ctx) => {
-    finishFailedCompaction(ctx, event.errorMessage ?? "Compaction cancelled");
-  });
-
-  pi.on("agent_settled", async () => {
-    schedulePostCompactionDelivery();
+  pi.on("agent_settled", async (_event, ctx) => {
+    if (deliverAfterRetrySettles) {
+      deliverAfterRetrySettles = false;
+      schedulePostCompactionDelivery(ctx);
+    }
   });
 
   // Also dismiss on tool calls (agent is working) + refresh vibe if rate limit allows
@@ -2026,13 +1979,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function dismissWelcome(ctx: any) {
-    welcomeRequest?.abort();
-    welcomeRequest = null;
-    if (welcomeTimer) clearTimeout(welcomeTimer);
-    welcomeTimer = null;
     if (dismissWelcomeOverlay) {
       dismissWelcomeOverlay();
       dismissWelcomeOverlay = null;
+    } else {
+      // The startup overlay mounts after a delay; dismiss it immediately if it appears later.
+      welcomeOverlayShouldDismiss = true;
     }
     if (welcomeHeaderActive) {
       welcomeHeaderActive = false;
@@ -2047,7 +1999,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function dismissWelcomeForInput(ctx: any) {
-    if (!welcomeRequest && !dismissWelcomeOverlay && !welcomeHeaderActive) return;
+    if (!dismissWelcomeOverlay && welcomeOverlayShouldDismiss && !welcomeHeaderActive) return;
     dismissWelcome(ctx);
   }
 
@@ -2111,23 +2063,33 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   async function selectPromptHistorySource(
     ctx: any,
     stashCount: number,
+    projectPromptCount: number,
   ): Promise<"stash" | "project" | null> {
-    if (stashCount === 0) {
-      return "project";
-    }
-
     const items: SelectItem[] = [];
 
-    items.push({
-      value: "stash",
-      label: "Stashed prompts",
-      description: `${stashCount} saved`,
-    });
-    items.push({
-      value: "project",
-      label: "Recent project prompts",
-      description: "load on demand",
-    });
+    if (stashCount > 0) {
+      items.push({
+        value: "stash",
+        label: "Stashed prompts",
+        description: `${stashCount} saved`,
+      });
+    }
+
+    if (projectPromptCount > 0) {
+      items.push({
+        value: "project",
+        label: "Recent project prompts",
+        description: `${projectPromptCount} recent`,
+      });
+    }
+
+    if (items.length === 0) {
+      return null;
+    }
+
+    if (items.length === 1) {
+      return items[0]?.value === "project" ? "project" : "stash";
+    }
 
     const selected = await showSelectOverlay(
       ctx, "Prompt history", "↑↓ navigate • enter open • esc cancel",
@@ -2166,7 +2128,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function isStashShortcutInput(data: string): boolean {
-    return matchesStashShortcutInput(data);
+    return matchesStashShortcutInput(data, { includePrintableSharpS: config.stashSharpSShortcut });
   }
 
   function isPromptHistoryShortcutInput(data: string): boolean {
@@ -2192,9 +2154,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
     if (matchesConfiguredShortcut(data, resolvedShortcuts.queueOpen)) {
       return { kind: "queueOpen" };
-    }
-    if (resolvedShortcuts.reply && matchesConfiguredShortcut(data, resolvedShortcuts.reply)) {
-      return { kind: "reply" };
     }
     if (matchesConfiguredShortcut(data, bashModeSettings.toggleShortcut)) {
       return { kind: "bashMode" };
@@ -2223,11 +2182,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
     if (action.kind === "queueOpen") {
       void openQueuePicker(ctx);
-      return;
-    }
-
-    if (action.kind === "reply") {
-      void reply("", ctx);
       return;
     }
 
@@ -2262,37 +2216,36 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   async function openStashHistory(ctx: any): Promise<void> {
-    const source = await selectPromptHistorySource(ctx, stashedPromptHistory.length);
+    let projectPrompts: string[] = [];
+
+    try {
+      projectPrompts = readRecentProjectPrompts(ctx.cwd, PROJECT_PROMPT_HISTORY_LIMIT);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Failed to load project prompts: ${message}`, "warning");
+    }
+
+    if (stashedPromptHistory.length === 0 && projectPrompts.length === 0) {
+      ctx.ui.notify("No prompt history yet", "info");
+      return;
+    }
+
+    const source = await selectPromptHistorySource(ctx, stashedPromptHistory.length, projectPrompts.length);
     if (!source) {
       return;
     }
 
-    if (source === "project") {
-      let projectPrompts: string[] = [];
-      try {
-        projectPrompts = readRecentProjectPrompts(ctx.cwd, PROJECT_PROMPT_HISTORY_LIMIT);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Failed to load project prompts: ${message}`, "warning");
-        return;
-      }
+    const selected = source === "project"
+      ? await selectProjectPromptFromHistory(ctx, projectPrompts)
+      : await selectStashedPromptFromHistory(ctx);
+    if (!selected) return;
 
-      if (projectPrompts.length === 0) {
-        ctx.ui.notify(stashedPromptHistory.length === 0 ? "No prompt history yet" : "No recent project prompts", "info");
-        return;
-      }
-
-      const selected = await selectProjectPromptFromHistory(ctx, projectPrompts);
-      if (!selected) return;
-
-      await insertSelectedPromptHistoryEntry(ctx, selected);
+    if (source === "stash") {
+      await handleSelectedStashHistoryEntry(ctx, selected);
       return;
     }
 
-    const selected = await selectStashedPromptFromHistory(ctx);
-    if (!selected) return;
-
-    await handleSelectedStashHistoryEntry(ctx, selected);
+    await insertSelectedPromptHistoryEntry(ctx, selected);
   }
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -2313,6 +2266,16 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     try {
       if (hasUI) {
         onVibeAgentEnd(ctx.ui.setWorkingMessage); // working-vibes internal state + reset message
+        if (stashedEditorText !== null) {
+          if (ctx.ui.getEditorText().trim() === "") {
+            ctx.ui.setEditorText(stashedEditorText);
+            stashedEditorText = null;
+            ctx.ui.setStatus("stash", undefined);
+            ctx.ui.notify("Stash restored", "info");
+          } else {
+            ctx.ui.notify("Stash preserved — clear editor then Alt+S to restore", "info");
+          }
+        }
       }
     } catch (error) {
       if (!isStaleExtensionContextError(error)) throw error;
@@ -2321,17 +2284,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
 
     requestStatusRender();
-    schedulePostCompactionDelivery();
+    if (!powerlineCompacting && !deliverAfterRetrySettles) {
+      schedulePostCompactionDelivery(ctx);
+    }
   });
 
   registerCdCommand(pi, () => currentCtx?.cwd ?? process.cwd());
-
-  pi.registerCommand("reply", {
-    description: "Quote a previous user or assistant message into the editor",
-    handler: async (args, ctx) => {
-      await reply(args, ctx);
-    },
-  });
 
   pi.registerCommand("queue", {
     description: "Manage Powerline queued prompts and project aliases",
@@ -2445,7 +2403,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           shellSession = null;
           bashTranscript.clear();
           bashModeActive = false;
-          dismissWelcome(ctx);
+          dismissWelcomeOverlay?.();
+          dismissWelcomeOverlay = null;
+          welcomeHeaderActive = false;
+          welcomeOverlayShouldDismiss = false;
           getPromptHistoryState().savedPromptHistory = [];
           stashedEditorText = null;
                 ctx.ui.setStatus("stash", undefined);
@@ -2700,7 +2661,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     },
   });
 
-  function buildSegmentContext(ctx: any, theme: Theme, allSegmentIds: StatusLineSegmentId[]): SegmentContext {
+  function buildSegmentContext(ctx: any, theme: Theme): SegmentContext {
     setVibeWorkingMessageTheme(theme);
     const presetDef = getPreset(config.preset);
     const colors: ColorScheme = presetDef.colors ?? getDefaultColors();
@@ -2732,17 +2693,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
     const segmentOptions = mergeSegmentOptions(presetDef.segmentOptions, config.segmentOptions);
 
-    const gitOptions = segmentOptions.git;
-    const showGit = allSegmentIds.includes("git") && [
-      gitOptions?.showBranch, gitOptions?.showStaged, gitOptions?.showUnstaged, gitOptions?.showUntracked,
-    ].some((visible) => visible !== false);
-    const gitBranch = showGit && footerDataCwd === ctx.cwd
-      ? footerDataRef?.getGitBranch() ?? null
-      : null;
-    // Full mode retains counts for dirty branch coloring, even with hidden indicators.
-    const gitStatus = showGit
-      ? getGitStatus(gitBranch, gitOptions?.polling, ctx.cwd)
-      : { branch: null, staged: 0, unstaged: 0, untracked: 0 };
+    // Get git status (cached)
+    const gitBranch = footerDataRef?.getGitBranch() ?? null;
+    const gitStatus = getGitStatus(gitBranch, segmentOptions.git?.polling);
     const extensionStatuses = footerDataRef?.getExtensionStatuses() ?? new Map();
     const customItemsById = new Map(config.customItems.map((item) => [item.id, item]));
     const hiddenExtensionStatusKeys = collectHiddenExtensionStatusKeys(config.customItems);
@@ -2753,14 +2706,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       : false;
 
     const thinkingLevel = currentThinkingLevel ?? thinkingLevelFromSession ?? getThinkingLevelFn?.() ?? "off";
-    const queueSummary: QueueSummary = allSegmentIds.includes("queue") ? getQueueSummary(ctx) : {
-      queueCount: 0,
-      blockedCount: 0,
-      compacting: powerlineCompacting,
-      leadingText: null,
-      leadingIntent: null,
-      leadingStatus: null,
-    };
+    const queueSummary = getQueueSummary(ctx);
 
     return {
       model: ctx.model,
@@ -2813,20 +2759,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
 
     const presetDef = getPreset(config.preset);
-    const mergedSegments = mergeSegmentsWithCustomItems(presetDef, config.customItems, {
-      layout: config.layout,
-      disabledSegments: config.disabledSegments,
-    });
-    const allSegmentIds = [
-      ...mergedSegments.leftSegments,
-      ...mergedSegments.rightSegments,
-      ...mergedSegments.secondarySegments,
-    ];
     let segmentCtx: SegmentContext;
     try {
       segmentCtx = editorPerf.options.enabled
-        ? editorPerf.measure("layout.segment-context", () => buildSegmentContext(currentCtx, theme, allSegmentIds))
-        : buildSegmentContext(currentCtx, theme, allSegmentIds);
+        ? editorPerf.measure("layout.segment-context", () => buildSegmentContext(currentCtx, theme))
+        : buildSegmentContext(currentCtx, theme);
     } catch (error) {
       if (!isStaleExtensionContextError(error)) throw error;
       currentCtx = null;
@@ -2839,7 +2776,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
 
     lastLayoutWidth = width;
-    lastLayoutResult = computeResponsiveLayout(segmentCtx, presetDef, allSegmentIds, width);
+    lastLayoutResult = computeResponsiveLayout(segmentCtx, presetDef, width);
     lastLayoutTimestamp = now;
     layoutDirty = false;
     forceNextLayoutRecompute = false;
@@ -3159,9 +3096,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         const isFollowUpSubmit = keybindings.matches(data, "app.message.followUp");
         if (!powerlineCompacting && !bashModeActive && isSubmit && typeof ctx.compact === "function") {
           const editorText = editor.getExpandedText().trim();
-          const compactQueuedPrompt = config.queue.compactPromptMode === "queue"
-            ? parseCompactQueuedPrompt(editorText)
-            : null;
+          const compactQueuedPrompt = parseCompactQueuedPrompt(editorText);
           if (editorText === "/compact" || compactQueuedPrompt) {
             editor.addToHistory?.(editorText);
             editor.setText("");
@@ -3169,14 +3104,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
               capturePostCompactPrompt(ctx, compactQueuedPrompt);
             }
             powerlineCompacting = true;
-            cancelPostCompactionDelivery();
-            const generation = sessionGeneration;
-            const operation = ++compactionGeneration;
+            deliverAfterRetrySettles = false;
             requestQueueRender();
             ctx.compact({
               onError: (error: Error) => {
-                // Preparation can fail before session_before_compact increments the operation.
-                if (generation !== sessionGeneration || compactionGeneration > operation + 1 || !powerlineCompacting) return;
                 finishFailedCompaction(ctx, error.message);
                 ctx.ui.notify(error.message, "error");
               },
@@ -3317,24 +3248,15 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
     ctx.ui.setFooter((tui: any, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
       footerDataRef = footerData;
-      // Pi sets the provider cwd from sessionManager before binding session_start.
-      // Do not treat its branch as authoritative if the extension cwd differs.
-      footerDataCwd = ctx.sessionManager?.getCwd?.() ?? null;
       tuiRef = tui;
       installFooterStatusRepaintHook(footerData);
-      const unsub = footerData.onBranchChange(() => {
-        invalidateGitStatus();
-        invalidateGitBranch();
-        requestStatusRender();
-      });
+      const unsub = footerData.onBranchChange(() => requestStatusRender());
       const unsubGitUpdates = subscribeGitUpdates(() => requestStatusRender());
 
       return {
         dispose() {
           unsub();
           unsubGitUpdates();
-          footerDataRef = null;
-          footerDataCwd = null;
           restoreFooterStatusRepaintHook?.();
           restoreFooterStatusRepaintHook = null;
         },
@@ -3350,138 +3272,122 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     installPowerlineWidgets(ctx);
   }
 
-  function beginWelcomeRequest(ctx: any): AbortController {
-    dismissWelcome(ctx);
-    welcomeRequest = new AbortController();
-    return welcomeRequest;
-  }
-
-  function canShowWelcome(ctx: any, request: AbortController, generation: number): boolean {
-    if (request !== welcomeRequest || request.signal.aborted || generation !== sessionGeneration
-      || !enabled || !config.welcome || !ctx.hasUI || isStreaming
-      || ctx.ui.getEditorText()) return false;
-    const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
-    return !sessionEvents.some((entry: unknown) => {
-      if (!isRecord(entry)) return false;
-      if (entry.type === "tool_call" || entry.type === "tool_result") return true;
-      return entry.type === "message" && isRecord(entry.message) && entry.message.role === "assistant";
-    });
-  }
-
   function setupWelcomeHeader(ctx: any, additive = false) {
-    const request = beginWelcomeRequest(ctx);
-    const generation = sessionGeneration;
-    // Keep optional archive discovery off the session_start completion path.
-    welcomeTimer = setTimeout(async () => {
-      welcomeTimer = null;
-      try {
-        if (!canShowWelcome(ctx, request, generation)) return;
-        const recentSessions = await getRecentSessions(3, request.signal);
-        if (!canShowWelcome(ctx, request, generation)) return;
-        const modelName = ctx.model?.name || ctx.model?.id || "No model";
-        const providerName = ctx.model?.provider || "Unknown";
-        const loadedCounts = discoverLoadedCounts();
-        const initialContextTokens = estimateInitialContextTokens(ctx);
+    const modelName = ctx.model?.name || ctx.model?.id || "No model";
+    const providerName = ctx.model?.provider || "Unknown";
+    const loadedCounts = discoverLoadedCounts();
+    const recentSessions = getRecentSessions(3);
+    const initialContextTokens = estimateInitialContextTokens(ctx);
 
-        const header = new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, initialContextTokens);
-        welcomeHeaderActive = true;
-        welcomeHeaderAdditive = additive;
-        if (additive) {
-          const ui = ctx.ui as typeof ctx.ui & { setHeaderWidget?: (key: string, factory: unknown) => void };
-          ui.setHeaderWidget?.("powerline-welcome", () => header);
-        } else {
-          ctx.ui.setHeader(() => header);
-        }
-      } catch (error: unknown) {
-        if (!request.signal.aborted || error !== request.signal.reason) {
-          console.debug("[powerline-footer] Welcome header failed:", error);
-        }
-      }
-    }, 0);
+    const header = new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, initialContextTokens);
+    welcomeHeaderActive = true;
+    welcomeHeaderAdditive = additive;
+
+    const factory = () => ({
+      render(width: number): string[] {
+        return header.render(width);
+      },
+      invalidate() {
+        header.invalidate();
+      },
+    });
+    if (additive) {
+      const ui = ctx.ui as typeof ctx.ui & { setHeaderWidget?: (key: string, factory: unknown) => void };
+      ui.setHeaderWidget?.("powerline-welcome", factory);
+    } else {
+      ctx.ui.setHeader(factory);
+    }
   }
 
   function setupWelcomeOverlay(ctx: any) {
-    const request = beginWelcomeRequest(ctx);
     const modelName = ctx.model?.name || ctx.model?.id || "No model";
     const providerName = ctx.model?.provider || "Unknown";
+    const loadedCounts = discoverLoadedCounts();
+    const recentSessions = getRecentSessions(3);
 
     const overlaySessionGeneration = sessionGeneration;
 
     // Small delay to let pi-mono finish initialization
-    welcomeTimer = setTimeout(async () => {
-      welcomeTimer = null;
-      try {
-        if (!canShowWelcome(ctx, request, overlaySessionGeneration)) return;
-        const recentSessions = await getRecentSessions(3, request.signal);
-        if (!canShowWelcome(ctx, request, overlaySessionGeneration)) return;
-        const loadedCounts = discoverLoadedCounts();
-        const initialContextTokens = estimateInitialContextTokens(ctx);
+    setTimeout(() => {
+      if (!enabled || welcomeOverlayShouldDismiss || isStreaming || overlaySessionGeneration !== sessionGeneration) {
+        welcomeOverlayShouldDismiss = false;
+        return;
+      }
 
-        void ctx.ui.custom(
-          (tui: any, _theme: any, _keybindings: any, done: (result: void) => void) => {
-            if (!canShowWelcome(ctx, request, overlaySessionGeneration)) {
-              done();
-              return { render: () => [], invalidate() {} };
-            }
-            const welcome = new WelcomeComponent(
-              modelName,
-              providerName,
-              recentSessions,
-              loadedCounts,
-              initialContextTokens,
-            );
+      const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
+      const hasActivity = sessionEvents.some((entry: unknown) => {
+        if (!isRecord(entry)) return false;
+        if (entry.type === "tool_call" || entry.type === "tool_result") return true;
+        return entry.type === "message" && isRecord(entry.message) && entry.message.role === "assistant";
+      });
+      if (hasActivity) {
+        return;
+      }
 
-            let countdown = 30;
-            let dismissed = false;
-            let interval: ReturnType<typeof setInterval> | null = null;
+      const initialContextTokens = estimateInitialContextTokens(ctx);
 
-            const dismiss = () => {
-              if (dismissed) return;
+      ctx.ui.custom(
+        (tui: any, _theme: any, _keybindings: any, done: (result: void) => void) => {
+          const welcome = new WelcomeComponent(
+            modelName,
+            providerName,
+            recentSessions,
+            loadedCounts,
+            initialContextTokens,
+          );
+
+          let countdown = 30;
+          let dismissed = false;
+          let interval: ReturnType<typeof setInterval> | null = null;
+
+          const dismiss = () => {
+            if (dismissed) return;
+            dismissed = true;
+            if (interval) clearInterval(interval);
+            dismissWelcomeOverlay = null;
+            done();
+          };
+
+          interval = setInterval(() => {
+            if (dismissed) return;
+            countdown--;
+            welcome.setCountdown(countdown);
+            tui.requestRender();
+            if (countdown <= 0) dismiss();
+          }, 1000);
+
+          dismissWelcomeOverlay = dismiss;
+
+          if (welcomeOverlayShouldDismiss) {
+            welcomeOverlayShouldDismiss = false;
+            dismiss();
+          }
+
+          return {
+            focused: false,
+            wantsKeyRelease: true,
+            invalidate: () => welcome.invalidate(),
+            render: (width: number) => welcome.render(width),
+            handleInput: (data: string) => {
+              dismiss();
+              if (!isKeyRelease(data)) currentEditor?.handleInput(data);
+            },
+            dispose: () => {
               dismissed = true;
               if (interval) clearInterval(interval);
-              request.abort();
-              if (welcomeRequest === request) welcomeRequest = null;
-              dismissWelcomeOverlay = null;
-              done();
-            };
-
-            interval = setInterval(() => {
-              if (dismissed) return;
-              countdown--;
-              welcome.setCountdown(countdown);
-              tui.requestRender();
-              if (countdown <= 0) dismiss();
-            }, 1000);
-
-            dismissWelcomeOverlay = dismiss;
-
-            return {
-              focused: false,
-              wantsKeyRelease: true,
-              invalidate: () => welcome.invalidate(),
-              render: (width: number) => welcome.render(width),
-              handleInput: (data: string) => {
-                dismiss();
-                if (!isKeyRelease(data)) currentEditor?.handleInput(data);
-              },
-              dispose: dismiss,
-            };
-          },
-          {
-            overlay: true,
-            overlayOptions: () => ({
-              verticalAlign: "center",
-              horizontalAlign: "center",
-            }),
-          },
-        ).catch((error: unknown) => {
-          console.debug("[powerline-footer] Welcome overlay failed:", error);
-        });
-      } catch (error: unknown) {
-        if (!request.signal.aborted || error !== request.signal.reason) {
-          console.debug("[powerline-footer] Welcome overlay failed:", error);
-        }
-      }
+            },
+          };
+        },
+        {
+          overlay: true,
+          overlayOptions: () => ({
+            verticalAlign: "center",
+            horizontalAlign: "center",
+          }),
+        },
+      ).catch((error: unknown) => {
+        console.debug("[powerline-footer] Welcome overlay failed:", error);
+      });
     }, 100);
   }
 }

@@ -3,8 +3,8 @@
 This directory is a source copy, not a Git history import.
 
 - Original project: [`nicobailon/pi-powerline-footer`](https://github.com/nicobailon/pi-powerline-footer)
-- Copied source revision: [`fb48aa72`](https://github.com/nicobailon/pi-powerline-footer/commit/fb48aa72eb8b7c140d2b42ff05cbfb9e7b653e9b), `v0.17.1`
-- Previous local source: [`AntiD2ta/pi-powerline-footer`](https://github.com/AntiD2ta/pi-powerline-footer) at [`fe4d659173e6`](https://github.com/AntiD2ta/pi-powerline-footer/commit/fe4d659173e60a763a21a865dc96db6e2199ad41)
+- Copied from fork: [`AntiD2ta/pi-powerline-footer`](https://github.com/AntiD2ta/pi-powerline-footer)
+- Copied source revision: [`fe4d659173e60a763a21a865dc96db6e2199ad41`](https://github.com/AntiD2ta/pi-powerline-footer/commit/fe4d659173e60a763a21a865dc96db6e2199ad41)
 
 The copied package metadata names Nico Bailon as its author and declares the MIT license. The source history records contributions from Alexander Gerdes, Andy8647, AntiD2ta, anukul, Francisco Magno, JMHSV, Justin Smestad, Nico Bailon, Sergey Konkin, TA3PKS, and Thurston Sandberg.
 

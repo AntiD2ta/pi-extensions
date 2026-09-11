@@ -7,32 +7,10 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getAgentPath } from "./paths.ts";
-import { isStaleExtensionContextError } from "./lifecycle.ts";
 import { applyColor, rainbow } from "./theme.ts";
 import type { ColorValue, ThemeLike } from "./types.ts";
 
 type VibeMode = "generate" | "file";
-type VibeThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-
-const VIBE_THINKING_LEVELS = new Set<VibeThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-
-interface ParsedModelSpec {
-  provider: string;
-  modelId: string;
-}
-
-function parseModelSpec(modelSpec: string): ParsedModelSpec | null {
-  const slashIndex = modelSpec.indexOf("/");
-  if (slashIndex === -1) {
-    return null;
-  }
-  const provider = modelSpec.slice(0, slashIndex);
-  const modelId = modelSpec.slice(slashIndex + 1);
-  if (!provider || !modelId) {
-    return null;
-  }
-  return { provider, modelId };
-}
 
 // Extension-registered providers live in the model registry only: their custom `api` values
 // are absent from pi-ai's global api table, so streaming has to go through the provider.
@@ -59,7 +37,7 @@ async function completeVibe(
 // Constants
 // ═══════════════════════════════════════════════════════════════════════════
 
-const DEFAULT_MODEL = "openai-codex/gpt-5.6-luna:low";
+const DEFAULT_MODEL = "openai-codex/gpt-5.4-mini";
 
 const DEFAULT_PROMPT = `Generate a 2-4 word "{theme}" themed loading message ending in "...".
 
@@ -84,7 +62,7 @@ const VIBE_SYSTEM_PROMPT = "You generate short themed loading messages and reply
 interface VibeConfig {
   theme: string | null;        // null = disabled
   mode: VibeMode;              // "generate" (on-demand) or "file" (pre-generated)
-  modelSpec: string;           // default: "openai-codex/gpt-5.6-luna:low"
+  modelSpec: string;           // default: "openai-codex/gpt-5.4-mini"
   fallback: string;            // default: "Working"
   timeout: number;             // default: 3000ms
   refreshInterval: number;     // default: 30000ms (30s)
@@ -108,30 +86,6 @@ let isStreaming = false;
 let lastVibeTime = 0;
 let workingMessageTheme: ThemeLike | null = null;
 let workingMessageColor: ColorValue | "rainbow" | undefined;
-
-function resolveModelSpec(modelSpec: string): (ParsedModelSpec & { model: Model<string>; thinkingLevel?: VibeThinkingLevel }) | null {
-  const parsed = parseModelSpec(modelSpec);
-  if (!parsed || !extensionCtx) {
-    return null;
-  }
-
-  const exactModel = extensionCtx.modelRegistry.find(parsed.provider, parsed.modelId);
-  if (exactModel) {
-    return { ...parsed, model: exactModel };
-  }
-
-  const colonIndex = parsed.modelId.lastIndexOf(":");
-  if (colonIndex === -1) {
-    return null;
-  }
-  const suffix = parsed.modelId.slice(colonIndex + 1);
-  if (!VIBE_THINKING_LEVELS.has(suffix as VibeThinkingLevel)) {
-    return null;
-  }
-  const modelId = parsed.modelId.slice(0, colonIndex);
-  const model = extensionCtx.modelRegistry.find(parsed.provider, modelId);
-  return model ? { provider: parsed.provider, modelId, model, thinkingLevel: suffix as VibeThinkingLevel } : null;
-}
 
 // File-based mode state
 let vibeCache: string[] = [];        // Cached vibes from file
@@ -446,12 +400,23 @@ async function generateVibe(
     return `${config.fallback}...`;
   }
   
-  const resolvedModel = resolveModelSpec(config.modelSpec);
-  if (!resolvedModel) {
+  // Parse model spec (provider/modelId format, where modelId may contain slashes)
+  const slashIndex = config.modelSpec.indexOf("/");
+  if (slashIndex === -1) {
+    return `${config.fallback}...`;
+  }
+  const provider = config.modelSpec.slice(0, slashIndex);
+  const modelId = config.modelSpec.slice(slashIndex + 1);
+  if (!provider || !modelId) {
+    return `${config.fallback}...`;
+  }
+  
+  // Resolve model from registry
+  const model = extensionCtx.modelRegistry.find(provider, modelId);
+  if (!model) {
     console.debug(`[working-vibes] Model not found: ${config.modelSpec}`);
     return `${config.fallback}...`;
   }
-  const { provider, model, thinkingLevel } = resolvedModel;
   
   // Get auth
   const auth = await extensionCtx.modelRegistry.getApiKeyAndHeaders(model);
@@ -461,7 +426,7 @@ async function generateVibe(
   }
   
   const aiContext = buildAiContext(buildVibePrompt(ctx));
-  const response = await completeVibe(provider, model, aiContext, { apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal, reasoning: thinkingLevel });
+  const response = await completeVibe(provider, model, aiContext, { apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal });
 
   const textContent = response.content.find(c => c.type === "text");
   if (!textContent?.text && response.stopReason === "error" && response.errorMessage) {
@@ -532,8 +497,6 @@ async function generateAndUpdate(
     // AbortError is expected on timeout/cancel - don't log as error
     if (error instanceof Error && error.name === "AbortError") {
       console.debug("[working-vibes] Generation aborted");
-    } else if (isStaleExtensionContextError(error)) {
-      // Expected when an in-flight decorative update outlives its extension context.
     } else {
       console.debug("[working-vibes] Generation failed:", error);
     }
@@ -709,14 +672,19 @@ export async function generateVibesBatch(
     return { success: false, count: 0, filePath, error: "Extension not initialized" };
   }
   
-  if (!parseModelSpec(config.modelSpec)) {
+  // Parse model spec
+  const slashIndex = config.modelSpec.indexOf("/");
+  if (slashIndex === -1) {
     return { success: false, count: 0, filePath, error: "Invalid model spec" };
   }
-  const resolvedModel = resolveModelSpec(config.modelSpec);
-  if (!resolvedModel) {
+  const provider = config.modelSpec.slice(0, slashIndex);
+  const modelId = config.modelSpec.slice(slashIndex + 1);
+  
+  // Resolve model
+  const model = extensionCtx.modelRegistry.find(provider, modelId);
+  if (!model) {
     return { success: false, count: 0, filePath, error: `Model not found: ${config.modelSpec}` };
   }
-  const { provider, model, thinkingLevel } = resolvedModel;
   
   // Get auth
   const auth = await extensionCtx.modelRegistry.getApiKeyAndHeaders(model);
@@ -734,7 +702,7 @@ export async function generateVibesBatch(
   try {
     // Use longer timeout for batch generation (30 seconds)
     const signal = AbortSignal.timeout(30000);
-    const response = await completeVibe(provider, model, aiContext, { apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal, reasoning: thinkingLevel });
+    const response = await completeVibe(provider, model, aiContext, { apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal });
     
     const textContent = response.content.find(c => c.type === "text");
     if (!textContent?.text) {
