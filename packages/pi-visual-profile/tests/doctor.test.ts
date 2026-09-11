@@ -11,6 +11,7 @@ test("doctor renders configuration in readable sections", () => {
 		lightThemeAvailable: false,
 		globalPath: "/tmp/agent/visual-profile/config.json",
 		projectPath: "/work/project/.pi/visual-profile/config.json",
+		toolRendererProfileSupported: false,
 	}), [
 		"Visual profile doctor",
 		"",
@@ -34,6 +35,7 @@ test("doctor renders configuration in readable sections", () => {
 		"",
 		"Compatibility",
 		"  footer override: supported",
+		"  tool renderer profile: unavailable",
 		"  unsupported surfaces: native Pi rendering",
 		"",
 		"Configuration files",
