@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { stripTerminalSequences, Text, visibleWidth, type Component, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { createToolRendererProfile, type ToolCardTheme } from "../tool-cards.ts";
+import { stripTerminalSequences, Text, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { createToolRendererProfile, type ToolCardMouseEvent, type ToolCardMouseEventResult, type ToolCardTheme } from "../tool-cards.ts";
 
 const theme: ToolCardTheme = {
 	bg: (_color, text) => text,
 	fg: (_color, text) => text,
 };
+
+type MouseCapableComponent = Component & {
+	handleMouse?: (event: ToolCardMouseEvent) => ToolCardMouseEventResult | undefined;
+};
+
+function withMouseHandling(component: Component): MouseCapableComponent {
+	return component as MouseCapableComponent;
+}
 
 test("boxed frame matches the PR 4 rounded card layout", () => {
 	const frame = createToolRendererProfile("boxed", theme).frame({
@@ -145,7 +153,7 @@ test("boxed frame removes the native shell spacer before the result", () => {
 
 test("boxed frame delegates mouse input to native call and result regions", () => {
 	const received: string[] = [];
-	const region = (name: string): Component => ({
+	const region = (name: string) => ({
 		render: () => [name],
 		handleMouse: () => {
 			received.push(name);
@@ -160,7 +168,7 @@ test("boxed frame delegates mouse input to native call and result regions", () =
 		expandKeyText: "ctrl+e",
 	});
 	frame.render(40);
-	const event: TuiMouseEvent = {
+	const event: ToolCardMouseEvent = {
 		type: "click",
 		button: "left",
 		x: 2,
@@ -174,14 +182,14 @@ test("boxed frame delegates mouse input to native call and result regions", () =
 		ctrl: false,
 	};
 
-	assert.equal(frame.handleMouse?.(event)?.handled, true);
-	assert.equal(frame.handleMouse?.({ ...event, y: 3, screenY: 3 })?.handled, true);
+	assert.equal(withMouseHandling(frame).handleMouse?.(event)?.handled, true);
+	assert.equal(withMouseHandling(frame).handleMouse?.({ ...event, y: 3, screenY: 3 })?.handled, true);
 	assert.deepEqual(received, ["call", "result"]);
 });
 
 test("boxed frame does not treat a wrapped status row as call content", () => {
 	let callClicks = 0;
-	const call: Component = {
+	const call = {
 		render: () => ["a call that is wider than the card"],
 		handleMouse: () => {
 			callClicks += 1;
@@ -196,7 +204,7 @@ test("boxed frame does not treat a wrapped status row as call content", () => {
 		expandKeyText: "ctrl+e",
 	});
 	frame.render(24);
-	const statusClick: TuiMouseEvent = {
+	const statusClick: ToolCardMouseEvent = {
 		type: "click",
 		button: "left",
 		x: 2,
@@ -210,7 +218,7 @@ test("boxed frame does not treat a wrapped status row as call content", () => {
 		ctrl: false,
 	};
 
-	assert.equal(frame.handleMouse?.(statusClick), undefined);
+	assert.equal(withMouseHandling(frame).handleMouse?.(statusClick), undefined);
 	assert.equal(callClicks, 0);
 });
 

@@ -5,8 +5,6 @@ import {
 	truncateToWidth,
 	visibleWidth,
 	type Component,
-	type TuiMouseEvent,
-	type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { ToolCardStyle } from "./config.ts";
 
@@ -26,6 +24,36 @@ export interface ToolRendererFrameContext {
 
 export interface ToolRendererProfile {
 	frame(context: ToolRendererFrameContext): Component;
+}
+
+export interface ToolCardMouseEvent {
+	type: string;
+	button: string;
+	x: number;
+	y: number;
+	screenX: number;
+	screenY: number;
+	width: number;
+	height: number;
+	shift: boolean;
+	alt: boolean;
+	ctrl: boolean;
+}
+
+export interface ToolCardMouseEventResult {
+	handled?: boolean;
+	capture?: boolean;
+	focus?: boolean;
+	render?: boolean;
+}
+
+type MouseCapableComponent = Component & {
+	handleMouse?: (event: ToolCardMouseEvent) => ToolCardMouseEventResult | undefined;
+};
+
+function handleMouse(component: Component, event: ToolCardMouseEvent): ToolCardMouseEventResult | undefined {
+	if (!("handleMouse" in component)) return undefined;
+	return (component as MouseCapableComponent).handleMouse?.(event);
 }
 
 function statePresentation(state: ToolRendererFrameState): {
@@ -109,12 +137,12 @@ class BoxedFrame implements Component {
 		];
 	}
 
-	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+	handleMouse(event: ToolCardMouseEvent): ToolCardMouseEventResult | undefined {
 		const layout = this.mouseLayout?.width === event.width ? this.mouseLayout : undefined;
 		if (!layout || event.x < 1 || event.x >= event.width - 1) return undefined;
 
 		if (event.y >= 1 && event.y < 1 + layout.callHeight) {
-			return this.context.call.handleMouse?.({
+			return handleMouse(this.context.call, {
 				...event,
 				x: Math.max(0, event.x - 2),
 				y: event.y - 1,
@@ -127,7 +155,7 @@ class BoxedFrame implements Component {
 		if (!this.context.result || event.y < resultStart || event.y >= resultStart + layout.resultHeight - layout.resultOffset) {
 			return undefined;
 		}
-		return this.context.result.handleMouse?.({
+		return handleMouse(this.context.result, {
 			...event,
 			x: Math.max(0, event.x - 2),
 			y: event.y - resultStart + layout.resultOffset,
