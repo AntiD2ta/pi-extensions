@@ -23,6 +23,7 @@ export interface ToolRendererFrameContext {
 }
 
 export interface ToolRendererProfile {
+	tools: Record<string, { renderShell?: string }>;
 	frame(context: ToolRendererFrameContext): Component;
 }
 
@@ -183,8 +184,9 @@ function minimalFrame(context: ToolRendererFrameContext, theme: ToolCardTheme): 
 	return frame;
 }
 
-export function createToolRendererProfile(style: ToolCardStyle, theme: ToolCardTheme): ToolRendererProfile {
+export function createToolRendererProfile(style: ToolCardStyle, theme: ToolCardTheme, mutationProfile: { tools: Record<string, { renderShell?: string }> } = { tools: {} }): ToolRendererProfile {
 	return {
+		...mutationProfile,
 		frame: (context) => style === "boxed" ? new BoxedFrame(context, theme) : minimalFrame(context, theme),
 	};
 }

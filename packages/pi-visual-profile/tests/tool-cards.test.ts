@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { stripTerminalSequences, Text, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { mutationRendererProfile } from "../mutation-cards.ts";
 import { createToolRendererProfile, type ToolCardMouseEvent, type ToolCardMouseEventResult, type ToolCardTheme } from "../tool-cards.ts";
 
 const theme: ToolCardTheme = {
@@ -15,6 +16,13 @@ type MouseCapableComponent = Component & {
 function withMouseHandling(component: Component): MouseCapableComponent {
 	return component as MouseCapableComponent;
 }
+
+test("tool profile retains semantic edit fallback renderers", () => {
+	const profile = createToolRendererProfile("boxed", theme, mutationRendererProfile("stacked"));
+
+	assert.equal(profile.tools.edit?.renderShell, "self");
+	assert.equal(profile.tools.write, undefined);
+});
 
 test("boxed frame matches the PR 4 rounded card layout", () => {
 	const frame = createToolRendererProfile("boxed", theme).frame({

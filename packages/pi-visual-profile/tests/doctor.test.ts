@@ -35,6 +35,7 @@ test("doctor renders configuration in readable sections", () => {
 		"  border: rounded",
 		"  padding: 1",
 		"  tool cards: boxed",
+		"  diff layout: stacked",
 		"",
 		"Themes",
 		"  pi-visual-profile-dark: available",

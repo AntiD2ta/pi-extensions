@@ -29,6 +29,8 @@ At the Pi prompt, run these commands in order:
 /visual-profile enable
 /visual-profile cards boxed
 /visual-profile cards minimal
+/visual-profile diff side-by-side
+/visual-profile diff stacked
 /visual-profile glyph unicode
 /visual-profile glyph ascii
 /visual-profile glyph nerd-font
@@ -55,6 +57,12 @@ For a trusted project override, start Pi in that project and run:
 7. Restart Pi with the same `trial_home`; confirm the selected profile, glyph settings, and card style persist.
 8. Run one MCP call after setup. Confirm the adapter-owned card shows `MCP`, the server and operation, a textual status, bounded result text, and the configured border and glyph mode. Use Ctrl+O to compare collapsed and expanded output.
 9. Disable the profile, then repeat the MCP call. Confirm native fences and adapter rendering return while `/mcp setup` and configuration discovery remain available.
+
+## Mutation-card fallback
+
+When `pi-tool-display` owns `edit` and `write`, its split renderer remains authoritative. The visual profile supplies the semantic edit card only when that owner is absent or disabled. `/visual-profile diff stacked|side-by-side` selects its fallback layout.
+
+Use `tests/fixtures/mutation-card-faux-provider.ts` for a focused offline edit trial. Keep it separate from the general smoke provider so the normal smoke path does not mutate files.
 
 ## Offline smoke model
 
