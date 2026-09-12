@@ -86,12 +86,11 @@ test("entry point registers expected lifecycle handlers", () => {
   assert.ok(beforeAgentStartCount >= 1, "at least one before_agent_start handler registered");
 });
 
-test("entry point registers tool-display command", () => {
+test("entry point registers tool-display command once", () => {
   const { api, capturedCommands } = createApiStub();
   toolDisplayExtension(api);
 
-  const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.includes("tool-display"), "tool-display command registered");
+  assert.deepEqual(capturedCommands.map((command) => command.name), ["tool-display"]);
 });
 
 test("entry point registers built-in tool overrides", () => {

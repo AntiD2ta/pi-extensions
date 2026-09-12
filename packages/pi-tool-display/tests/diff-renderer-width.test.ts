@@ -3,6 +3,7 @@ import test from "node:test";
 import { Box, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { buildDiffSummaryText, resolveDiffPresentationMode } from "../src/diff-presentation.ts";
 import { renderEditDiffResult, renderWriteDiffResult } from "../src/diff-renderer.ts";
+import type { ToolDisplayConfig } from "../src/types.ts";
 
 const diffConfig = {
 	diffViewMode: "auto" as const,
@@ -193,7 +194,7 @@ test("edit diff renderer respects parent box width across narrow layouts", () =>
 			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1,2 +1,2 @@\n-old value\n+new value\n unchanged\n",
 		},
 		{ expanded: false, filePath: "demo.txt" },
-		diffConfig as any,
+		diffConfig as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -209,7 +210,7 @@ test("write diff renderer respects parent box width across narrow layouts", () =
 	const component = renderWriteDiffResult(
 		"hello world\nsecond line\n",
 		{ expanded: false, filePath: "demo.txt", fileExistedBeforeWrite: false },
-		diffConfig as any,
+		diffConfig as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -232,7 +233,7 @@ test("write overwrite diff renderer falls back when the overwrite matrix would b
 			fileExistedBeforeWrite: true,
 			previousContent,
 		},
-		diffConfig as any,
+		diffConfig as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -274,7 +275,7 @@ test("split diff renderer preserves full background coverage inside the default 
 			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1,2 +1,3 @@\n same value\n-old value\n+new value\n+another line\n",
 		},
 		{ expanded: true, filePath: "demo.txt" },
-		splitDiffConfig as any,
+		splitDiffConfig as ToolDisplayConfig,
 		ansiTheme,
 		"",
 	);
@@ -308,7 +309,7 @@ test("split diff falls back to theme.bg when the default tool shell provides the
 			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1,2 +1,3 @@\n same value\n-old value\n+new value\n+another line\n",
 		},
 		{ expanded: true, filePath: "demo.txt" },
-		{ ...diffConfig, diffViewMode: "split" } as any,
+		{ ...diffConfig, diffViewMode: "split" } as ToolDisplayConfig,
 		{
 			fg: (_color: string, text: string): string => `\x1b[38;2;1;2;3m${text}\x1b[0m`,
 			bg: (slot: string, text: string): string => {
@@ -374,7 +375,7 @@ test("row backgrounds keep trailing padding painted to the rendered width", () =
 			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-keep before\n+keep after\n",
 		},
 		{ expanded: true, filePath: "demo.txt" },
-		diffConfig as any,
+		diffConfig as ToolDisplayConfig,
 		ansiTheme,
 		"",
 	);
@@ -429,7 +430,7 @@ test("inline emphasis backgrounds remain visible while row backgrounds still rec
 			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-keep before suffix\n+keep after suffix\n",
 		},
 		{ expanded: true, filePath: "demo.txt" },
-		splitDiffConfig as any,
+		splitDiffConfig as ToolDisplayConfig,
 		ansiTheme,
 		"",
 	);

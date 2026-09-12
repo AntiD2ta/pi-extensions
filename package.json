@@ -5,7 +5,10 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/pi-agent-status",
+    "packages/pi-mcp-adapter",
+    "packages/pi-powerline-footer",
+    "packages/pi-visual-profile"
   ],
   "pi": {
     "extensions": [

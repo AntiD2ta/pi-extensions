@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Box, type Component } from "@earendil-works/pi-tui";
 import { renderEditDiffResult } from "../src/diff-renderer.ts";
+import type { ToolDisplayConfig } from "../src/types.ts";
 
 const theme = {
 	fg: (_color: string, text: string): string => text,
@@ -67,7 +68,7 @@ test("split diff derives sequential new-side line numbers for canonical numbered
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: false,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -102,7 +103,7 @@ function renderHashlineDiff(expanded: boolean): string {
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: false,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);
