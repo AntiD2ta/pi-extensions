@@ -26,7 +26,7 @@ test("edit profile renders the native preview as one semantic card", async () =>
 		"edit-preview",
 		{ path: "notes.txt", edits: [{ oldText: "before", newText: "after" }] },
 		{},
-		mutationRendererProfile().tools.edit,
+		mutationRendererProfile().tools.edit as never,
 		{ requestRender() { if (component.render(80).join("\n").includes("+1 -1")) resolvePreview(); } } as TUI,
 		directory,
 	);
@@ -47,7 +47,7 @@ test("edit profile clears a stale preview when arguments change", async () => {
 		"edit-stale-preview",
 		{ path: "notes.txt", edits: [{ oldText: "before", newText: "after" }] },
 		{},
-		mutationRendererProfile().tools.edit,
+		mutationRendererProfile().tools.edit as never,
 		{ requestRender() {} } as TUI,
 		directory,
 	);
@@ -66,7 +66,7 @@ test("settled edit details are not replaced by a late preview", async () => {
 		"edit-settled",
 		{ path: "notes.txt", edits: [{ oldText: "before", newText: "preview" }] },
 		{},
-		mutationRendererProfile().tools.edit,
+		mutationRendererProfile().tools.edit as never,
 		{ requestRender() {} } as TUI,
 		directory,
 	);
@@ -148,7 +148,7 @@ test("side-by-side renderer profile applies the selected layout", () => {
 		"edit-side-by-side",
 		{ path: "notes.ts", edits: [{ oldText: "before", newText: "after" }] },
 		{},
-		mutationRendererProfile("side-by-side").tools.edit,
+		mutationRendererProfile("side-by-side").tools.edit as never,
 		{ requestRender() {} } as TUI,
 		process.cwd(),
 	);

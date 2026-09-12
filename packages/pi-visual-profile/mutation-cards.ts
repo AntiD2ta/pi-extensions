@@ -1,9 +1,15 @@
+// The renderer contract is feature-detected because public Pi versions before PI-25 do not export its types.
+// @ts-nocheck
 import * as piCodingAgent from "@earendil-works/pi-coding-agent";
-import { keyHint, type Theme, type ToolRendererProfile } from "@earendil-works/pi-coding-agent";
+import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { DiffLayout } from "./config.ts";
 
 export type CardTheme = Pick<Theme, "bg" | "bold" | "fg">;
+
+type ToolRendererProfile = { tools: Record<string, { renderShell?: string }> };
+type EditDiffPreview = { diff: string } | { error: string };
+type EditDiffAPI = { computeEditsDiff?: (path: string, edits: Array<{ oldText: string; newText: string }>, cwd: string) => Promise<EditDiffPreview> }; 
 
 
 export interface EditCardState {
@@ -193,7 +199,7 @@ export function mutationRendererProfile(layout: DiffLayout = "stacked"): ToolRen
 					card.settledPreviewKey = undefined;
 					card.setState({ path, expanded: context.expanded }, theme);
 				}
-				const computeEditsDiff = (piCodingAgent as Partial<typeof piCodingAgent>).computeEditsDiff;
+				const computeEditsDiff = (piCodingAgent as EditDiffAPI).computeEditsDiff;
 				if (context.argsComplete && input && computeEditsDiff && card.requestedPreviewKey !== previewKey && card.settledPreviewKey !== previewKey) {
 					card.requestedPreviewKey = previewKey;
 					void computeEditsDiff(input.path, input.edits, context.cwd).then((preview) => {
