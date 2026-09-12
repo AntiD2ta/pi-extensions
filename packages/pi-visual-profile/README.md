@@ -6,6 +6,8 @@ tool-card framing, native chat profile overrides, and themes.
 
 The footer and the queue belong to `pi-powerline-footer`, which owns both surfaces under ADR-0005. This package never renders a footer and never stores queue state.
 
+Start with the [documentation index](docs/INDEX.md) for installation, configuration, authoring, coexistence, troubleshooting, release checks, and provenance.
+
 When enabled, the profile acquires boxed MCP presentation from the bundled adapter, frames Pi's native built-in tool cards, and applies owner-safe fence chrome, themes, and editor padding. The bundled themes are selectable through `/settings` whether the profile is enabled or not.
 
 ## Visual trial
