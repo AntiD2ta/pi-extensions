@@ -8,6 +8,9 @@ import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
+const toolDisplayManifest = JSON.parse(
+	readFileSync(join(repositoryRoot, "packages", "pi-tool-display", "package.json"), "utf8"),
+);
 
 function createPackageFixture() {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-extensions-test-"));
@@ -38,6 +41,18 @@ test("root manifest declares one entry per package and its themes", () => {
 		extensions: ["packages/*/index.ts"],
 		themes: ["packages/*/themes/*.json"],
 	});
+});
+
+test("pi-tool-display declares Pi 0.85 compatibility", () => {
+	assert.deepEqual(toolDisplayManifest.peerDependencies, {
+		"@earendil-works/pi-coding-agent": ">=0.85.0 <0.86.0",
+		"@earendil-works/pi-tui": ">=0.85.0 <0.86.0",
+	});
+});
+
+test("pi-tool-display publishes its provenance records", () => {
+	assert.ok(toolDisplayManifest.files.includes("UPSTREAM.md"));
+	assert.ok(toolDisplayManifest.files.includes("NOTICE"));
 });
 
 test("visual-profile package contributes one entry and its themes", async (t) => {

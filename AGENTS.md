@@ -1,10 +1,14 @@
 # Development rules
 
-## Plane project
+## Plane projects
 
-Work in this repo is tracked in the Plane project `PI` ("PI"), workspace slug `local`, base URL
-`http://localhost`. The `repos:` marker in that project's description is the real repo-to-project
-binding. This file mirrors it for offline lookup. Re-run `plane-bootstrap-project` to refresh it.
+Plane projects that track work for **this repo**. The `repos:` marker in each project description is authoritative; this list is its offline mirror. Re-run `plane-bootstrap-project` to refresh it.
+
+- **Concern: PI** — project `PI` ("PI")
+  - Workspace slug `local` · base URL `http://localhost`
+  - Spans repos: `github.com/antid2ta/pi`, `github.com/antid2ta/pi-extensions`
+  - Gotchas: the agent token must be a project member · Plane drops an assignee who is not a project member
+  - Conventions: decisions = `adr` work items · issues = work items · glossary = `CONTEXT.md` · wayfinder maps = `wayfinder:map` work items
 
 One project covers two repos, `github.com/antid2ta/pi` (the Pi core fork) and
 `github.com/antid2ta/pi-extensions` (this monorepo), because most extension work depends on fork

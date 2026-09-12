@@ -1,0 +1,10 @@
+# Source notice
+
+This directory is a maintained source copy, not a Git history import.
+
+- Original project: [MasuRii/pi-tool-display](https://github.com/MasuRii/pi-tool-display)
+- Copied source revision: [91cef7580078371f8dc49a8607222807ad6a424d](https://github.com/MasuRii/pi-tool-display/commit/91cef7580078371f8dc49a8607222807ad6a424d)
+- Copyright: Copyright (c) 2026 MasuRii
+- License: MIT. See [LICENSE](LICENSE).
+
+`src/zellij-modal.ts` was included in the copied upstream source. MasuRii's source identifies it as vendored from `../zellij-modal/index.ts`, but no public prior repository, revision, or separate license was found. The maintainer approved redistribution under MasuRii's MIT license on 2026-09-12. This notice preserves the provenance gap for future review.
