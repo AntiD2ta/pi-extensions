@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Box, type Component } from "@earendil-works/pi-tui";
 import { renderEditDiffResult } from "../src/diff-renderer.ts";
+import type { ToolDisplayConfig } from "../src/types.ts";
 
 const theme = {
 	fg: (_color: string, text: string): string => text,
@@ -69,7 +70,7 @@ test("unified diff wrapped continuation rows should not repeat line numbers", ()
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: true,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -95,7 +96,7 @@ test("split diff falls back to unified with the same continuation numbering beha
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: true,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -121,7 +122,7 @@ test("multi-line unified diff keeps continuation rows blank while preserving log
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: true,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);
@@ -148,7 +149,7 @@ test("split diff keeps wrapped rows vertically aligned with blank placeholder ce
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: true,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);

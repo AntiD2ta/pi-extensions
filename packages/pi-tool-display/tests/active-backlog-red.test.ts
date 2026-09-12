@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Box, type Component } from "@earendil-works/pi-tui";
 import { renderEditDiffResult } from "../src/diff-renderer.ts";
+import type { ToolDisplayConfig } from "../src/types.ts";
 
 const theme = {
 	fg: (_color: string, text: string): string => text,
@@ -41,7 +42,7 @@ test("issue #23: expanded large diffs stay bounded for small tmux panes", () => 
 	const component = renderEditDiffResult(
 		{ diff: buildLargeUnifiedDiff(80) },
 		{ expanded: true, filePath: "large.txt" },
-		diffConfig as any,
+		diffConfig as ToolDisplayConfig,
 		theme,
 		"",
 	);

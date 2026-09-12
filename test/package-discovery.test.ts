@@ -77,6 +77,21 @@ test("visual-profile package contributes one entry and its themes", async (t) =>
 	assert.deepEqual(visualProfileThemes, ["pi-visual-profile-dark", "pi-visual-profile-light"]);
 });
 
+test("root manifest discovers pi-tool-display exactly once", async (t) => {
+	const fixture = createPackageFixture();
+	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
+	writeFileSync(join(fixture.agentDir, "settings.json"), JSON.stringify({ packages: [repositoryRoot] }));
+
+	const resourceLoader = new DefaultResourceLoader({ cwd: fixture.packageDir, agentDir: fixture.agentDir });
+	await resourceLoader.reload();
+
+	assert.deepEqual(
+		Array.from(resourceLoader.getExtensions().extensions, (extension) => extension.path)
+			.filter((path) => path === join(repositoryRoot, "packages", "pi-tool-display", "index.ts")),
+		[join(repositoryRoot, "packages", "pi-tool-display", "index.ts")],
+	);
+});
+
 test("root manifest loads every workspace extension by default", async (t) => {
 	const fixture = createPackageFixture();
 	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));

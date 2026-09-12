@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Box, type Component } from "@earendil-works/pi-tui";
 import { renderEditDiffResult } from "../src/diff-renderer.ts";
+import type { ToolDisplayConfig } from "../src/types.ts";
 
 function renderRawInsideToolBox(component: Component, width: number): string[] {
 	const box = new Box(1, 1);
@@ -24,7 +25,7 @@ function renderAddedLineWithTheme(theme: {
 			diffSplitMinWidth: 80,
 			diffCollapsedLines: 24,
 			diffWordWrap: true,
-		} as any,
+		} as ToolDisplayConfig,
 		theme,
 		"",
 	);

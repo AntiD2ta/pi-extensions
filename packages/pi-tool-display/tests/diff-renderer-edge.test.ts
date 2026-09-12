@@ -10,7 +10,7 @@ import {
 	renderEditDiffResult,
 	renderWriteDiffResult,
 } from "../src/diff-renderer.ts";
-import type { ToolDisplayConfig } from "../src/types.ts";
+import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
@@ -19,7 +19,8 @@ const passThroughTheme = {
 	bold: (text: string): string => text,
 };
 
-const defaultConfig: Partial<ToolDisplayConfig> = {
+const defaultConfig: ToolDisplayConfig = {
+	...DEFAULT_TOOL_DISPLAY_CONFIG,
 	diffViewMode: "auto",
 	diffSplitMinWidth: 80,
 	diffCollapsedLines: 24,
@@ -138,7 +139,7 @@ test("renderEditDiffResult handles entirely empty diff string", () => {
 	const component = renderEditDiffResult(
 		{ diff: "" },
 		{ expanded: true },
-		{ diffViewMode: "auto", diffSplitMinWidth: 80, diffCollapsedLines: 24, diffWordWrap: false } as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -151,7 +152,7 @@ test("renderEditDiffResult handles diff with only whitespace", () => {
 	const component = renderEditDiffResult(
 		{ diff: "   \n  \n" },
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -171,7 +172,7 @@ test("renderEditDiffResult handles diff with no actual changes (only file header
 			].join("\n"),
 		},
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -184,7 +185,7 @@ test("renderEditDiffResult handles empty diff with fallback text", () => {
 	const component = renderEditDiffResult(
 		{ diff: "" },
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"↳ file updated",
 	);
@@ -198,7 +199,7 @@ test("renderEditDiffResult handles undefined diff in details", () => {
 	const component = renderEditDiffResult(
 		{},
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -211,7 +212,7 @@ test("renderEditDiffResult handles null details", () => {
 	const component = renderEditDiffResult(
 		null,
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -222,9 +223,9 @@ test("renderEditDiffResult handles null details", () => {
 test("renderEditDiffResult handles non-object details", () => {
 	// string instead of object
 	const component = renderEditDiffResult(
-		"not an object" as any,
+		"not an object",
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -234,9 +235,9 @@ test("renderEditDiffResult handles non-object details", () => {
 
 test("renderEditDiffResult handles array as details", () => {
 	const component = renderEditDiffResult(
-		[] as any,
+		[],
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -248,7 +249,7 @@ test("renderEditDiffResult handles diff property with non-string value", () => {
 	const component = renderEditDiffResult(
 		{ diff: 42 },
 		{ expanded: true },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -266,7 +267,7 @@ test("renderEditDiffResult handles git binary diff patch gracefully", () => {
 	const component = renderEditDiffResult(
 		{ diff: binaryDiff },
 		{ expanded: true, filePath: "image.png" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -288,7 +289,7 @@ test("renderEditDiffResult renders diff with unicode characters", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "unicode.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -303,7 +304,7 @@ test("renderEditDiffResult renders diff with BOM prefix gracefully", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "bom.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -317,7 +318,7 @@ test("renderEditDiffResult handles CRLF line endings in diff", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "crlf.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -339,7 +340,7 @@ test("renderEditDiffResult renders diff with mixed indentation (tabs, spaces)", 
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "file.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -368,7 +369,7 @@ test("renderEditDiffResult falls back to unified when split layout cannot render
 		{
 			...defaultConfig,
 			diffViewMode: "split",
-		} as any,
+		},
 		passThroughTheme,
 		"",
 	);
@@ -395,11 +396,9 @@ test("renderEditDiffResult narrow width auto mode falls back from split to unifi
 		{ diff },
 		{ expanded: true, filePath: "a.ts" },
 		{
-			diffViewMode: "auto",
+			...defaultConfig,
 			diffSplitMinWidth: 200, // Requires 200+ width for split
-			diffCollapsedLines: 24,
-			diffWordWrap: false,
-		} as any,
+		},
 		passThroughTheme,
 		"",
 	);
@@ -420,7 +419,7 @@ test("renderEditDiffResult handles unknown language gracefully", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "file.unknown_extension_xyz" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -439,7 +438,7 @@ test("renderEditDiffResult handles null filePath (no highlighting attempted)", (
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: undefined },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -458,7 +457,7 @@ test("renderEditDiffResult handles empty filePath string", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -483,7 +482,7 @@ test("renderWriteDiffResult triggers overwrite guard when previousLineCount * ne
 			previousContent,
 			fileExistedBeforeWrite: true,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -510,7 +509,7 @@ test("renderWriteDiffResult triggers guard when previous lines exceed MAX_WRITE_
 			previousContent,
 			fileExistedBeforeWrite: true,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -528,7 +527,7 @@ test("renderWriteDiffResult does not trigger guard for small diffs", () => {
 			previousContent,
 			fileExistedBeforeWrite: true,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -551,7 +550,7 @@ test("renderWriteDiffResult does not trigger guard for new file (not overwrite)"
 			previousContent: undefined,
 			fileExistedBeforeWrite: false,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -567,7 +566,7 @@ test("renderWriteDiffResult reports created file header", () => {
 			filePath: "fresh.txt",
 			fileExistedBeforeWrite: false,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -585,7 +584,7 @@ test("renderWriteDiffResult reports overwritten file header", () => {
 			previousContent: "old",
 			fileExistedBeforeWrite: true,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -600,7 +599,7 @@ test("renderWriteDiffResult handles undefined content", () => {
 	const component = renderWriteDiffResult(
 		undefined,
 		{ expanded: true, filePath: "f.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -610,9 +609,9 @@ test("renderWriteDiffResult handles undefined content", () => {
 
 test("renderWriteDiffResult handles non-string content", () => {
 	const component = renderWriteDiffResult(
-		42 as any,
+		42 as unknown as string,
 		{ expanded: true, filePath: "f.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -624,7 +623,7 @@ test("renderWriteDiffResult uses fallback text when content is missing", () => {
 	const component = renderWriteDiffResult(
 		undefined,
 		{ expanded: true, filePath: "f.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"↳ file saved successfully",
 	);
@@ -647,7 +646,7 @@ test("renderEditDiffResult renders summary at very narrow width", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "a.ts" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -666,7 +665,7 @@ test("renderEditDiffResult renders compact mode at narrow width (8..17)", () => 
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "a.ts" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -680,7 +679,7 @@ test("renderWriteDiffResult handles empty string content", () => {
 	const component = renderWriteDiffResult(
 		"",
 		{ expanded: true, filePath: "empty.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -698,7 +697,7 @@ test("renderWriteDiffResult handles overwrite with identical content", () => {
 			previousContent,
 			fileExistedBeforeWrite: true,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -718,7 +717,7 @@ test("renderEditDiffResult renders canonical numbered diff with hashline anchors
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "demo.ts" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -740,7 +739,7 @@ test("renderEditDiffResult handles diff with only context lines", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "ctx.txt" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -815,7 +814,7 @@ test("renderWriteDiffResult uses custom header label", () => {
 			headerLabel: "custom-label",
 			fileExistedBeforeWrite: false,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -832,7 +831,7 @@ test("renderWriteDiffResult falls back to 'created' when no header label for new
 			filePath: "nothdr.txt",
 			fileExistedBeforeWrite: false,
 		},
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -854,7 +853,7 @@ test("renderEditDiffResult handles width 0 without crashing", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "a.ts" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);
@@ -877,7 +876,7 @@ test("renderEditDiffResult handles width 1 (minimum summary)", () => {
 	const component = renderEditDiffResult(
 		{ diff },
 		{ expanded: true, filePath: "a.ts" },
-		defaultConfig as any,
+		defaultConfig,
 		passThroughTheme,
 		"",
 	);

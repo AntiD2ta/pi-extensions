@@ -28,3 +28,18 @@ jobs:
           npm run build --prefix packages/pi-mcp-adapter/examples/interactive-visualizer
       - run: npm run typecheck
       - run: npm test
+
+  pi-tool-display:
+    name: pi-tool-display
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/pi-tool-display/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: packages/pi-tool-display
+      - run: npm run check
+        working-directory: packages/pi-tool-display
