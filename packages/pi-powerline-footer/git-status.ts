@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { resolve } from "node:path";
 import type { GitStatus } from "./types.ts";
 
 interface CachedGitStatus {
@@ -34,8 +35,32 @@ let pendingFetch: Promise<void> | null = null;
 let pendingBranchFetch: Promise<void> | null = null;
 let invalidationCounter = 0; // Track invalidations to prevent stale updates
 let branchInvalidationCounter = 0;
+let currentCwd: string | null = null;
+let lastProviderBranch: string | null = null;
 const updateListeners = new Set<() => void>();
 
+// Serve-stale is only valid within one cwd. Detach old requests as well as
+// clearing their data, so they cannot publish into or block the new cwd.
+function useCwd(cwd: string): string {
+  cwd = resolve(cwd);
+  if (cwd === currentCwd) return cwd;
+
+  currentCwd = cwd;
+  invalidateGitStatus();
+  invalidateGitBranch();
+  cachedStatus = null;
+  cachedBranch = null;
+  lastProviderBranch = null;
+  return cwd;
+}
+
+/** Wait for the background reads already requested by synchronous getters. */
+export async function waitForGitUpdates(): Promise<void> {
+  await Promise.all([pendingFetch, pendingBranchFetch, pendingRemoteFetch]);
+}
+
+// Refreshes always renew cache timestamps, but only visible changes may publish:
+// subscribers schedule a full TUI render, which can otherwise start another refresh.
 function notifyGitUpdate(): void {
   for (const listener of updateListeners) listener();
 }
@@ -97,11 +122,13 @@ export function readOnlyGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   return { ...env, GIT_OPTIONAL_LOCKS: "0" };
 }
 
-function runGit(args: string[], timeoutMs = 200): Promise<string | null> {
+function runGit(args: string[], cwd: string, timeoutMs = 200): Promise<string | null> {
   return new Promise((resolve) => {
     const proc = spawn("git", args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: readOnlyGitEnv(),
+      windowsHide: true,
+      cwd,
     });
 
     let stdout = "";
@@ -119,7 +146,7 @@ function runGit(args: string[], timeoutMs = 200): Promise<string | null> {
     });
 
     proc.on("close", (code) => {
-      finish(code === 0 ? stdout.trim() : null);
+      finish(code === 0 ? stdout.trimEnd() : null);
     });
 
     proc.on("error", () => {
@@ -137,13 +164,12 @@ function runGit(args: string[], timeoutMs = 200): Promise<string | null> {
  * Fetch current git branch asynchronously.
  * For detached HEAD, returns the short commit SHA (matches provider's "detached" behavior).
  */
-async function fetchGitBranch(): Promise<string | null> {
-  const branch = await runGit(["branch", "--show-current"]);
-  if (branch === null) return null;
+async function fetchGitBranch(cwd: string): Promise<string | null> {
+  const branch = await runGit(["symbolic-ref", "--short", "HEAD"], cwd, 500);
   if (branch) return branch;
 
-  const sha = await runGit(["rev-parse", "--short", "HEAD"]);
-  return sha ? `${sha} (detached)` : "detached";
+  const sha = await runGit(["rev-parse", "--short", "HEAD"], cwd, 500);
+  return sha ? `${sha} (detached)` : null;
 }
 
 /**
@@ -177,36 +203,34 @@ export function detectGitHost(remoteUrl: string | null): GitHost | null {
 }
 
 /**
- * Fetch the origin remote host asynchronously and cache the result.
- */
-async function fetchRemoteHost(): Promise<GitHost | null> {
-  const url = await runGit(["remote", "get-url", "origin"]);
-  return detectGitHost(url);
-}
-
-/**
  * Get the origin remote's hosting provider with a long TTL cache. Returns the
  * cached value immediately (or null before the first fetch completes) and
  * refreshes in the background, matching the branch/status caching pattern.
  */
-export function getGitRemoteHost(): GitHost | null {
+export function getGitRemoteHost(cwd = process.cwd()): GitHost | null {
+  cwd = useCwd(cwd);
   const now = Date.now();
   if (cachedRemoteHost && now - cachedRemoteHost.timestamp < REMOTE_TTL_MS) {
     return cachedRemoteHost.host;
   }
 
   if (!pendingRemoteFetch) {
-    pendingRemoteFetch = fetchRemoteHost()
+    const fetchId = branchInvalidationCounter;
+    pendingRemoteFetch = runGit(["remote", "get-url", "origin"], cwd, 1000).then(detectGitHost)
       .then((host) => {
+        if (fetchId !== branchInvalidationCounter) return;
+        const changed = (cachedRemoteHost?.host ?? null) !== host;
         cachedRemoteHost = { host, timestamp: Date.now() };
-        notifyGitUpdate();
+        if (changed) notifyGitUpdate();
       })
       .catch(() => {
+        if (fetchId !== branchInvalidationCounter) return;
+        const changed = (cachedRemoteHost?.host ?? null) !== null;
         cachedRemoteHost = { host: null, timestamp: Date.now() };
-        notifyGitUpdate();
+        if (changed) notifyGitUpdate();
       })
       .finally(() => {
-        pendingRemoteFetch = null;
+        if (fetchId === branchInvalidationCounter) pendingRemoteFetch = null;
       });
   }
 
@@ -216,17 +240,26 @@ export function getGitRemoteHost(): GitHost | null {
 /**
  * Fetch git status asynchronously
  */
-async function fetchGitStatus(): Promise<{ staged: number; unstaged: number; untracked: number } | null> {
-  const output = await runGit(["status", "--porcelain"], 500);
+async function fetchGitStatus(cwd: string): Promise<{ staged: number; unstaged: number; untracked: number } | null> {
+  const output = await runGit(["status", "--porcelain"], cwd, 1000);
   if (output === null) return null;
   return parseGitStatusOutput(output);
 }
 
 /**
  * Get the current git branch with caching.
- * Falls back to provider branch if our cache is empty.
+ * Reuse Pi's attached branch; poll only when unavailable or detached.
+ * The provider value must belong to the supplied cwd.
  */
-export function getCurrentBranch(providerBranch: string | null): string | null {
+export function getCurrentBranch(providerBranch: string | null, cwd = process.cwd()): string | null {
+  cwd = useCwd(cwd);
+  if (providerBranch !== lastProviderBranch) {
+    invalidateGitBranch();
+    invalidateGitStatus();
+    cachedBranch = null;
+    lastProviderBranch = providerBranch;
+  }
+  if (providerBranch && providerBranch !== "detached") return providerBranch;
   const now = Date.now();
 
   // Return cached if fresh
@@ -237,16 +270,17 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
   // Trigger background fetch if not already pending
   if (!pendingBranchFetch) {
     const fetchId = branchInvalidationCounter;
-    pendingBranchFetch = fetchGitBranch().then((result) => {
+    pendingBranchFetch = fetchGitBranch(cwd).then((result) => {
       // Cache result if no invalidation happened (including null for non-git dirs)
       if (fetchId === branchInvalidationCounter) {
+        const changed = (cachedBranch ? cachedBranch.branch : providerBranch) !== result;
         cachedBranch = {
           branch: result,
           timestamp: Date.now(),
         };
-        notifyGitUpdate();
+        if (changed) notifyGitUpdate();
       }
-      pendingBranchFetch = null;
+      if (fetchId === branchInvalidationCounter) pendingBranchFetch = null;
     });
   }
 
@@ -260,36 +294,33 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
  * This is designed for synchronous render() calls - returns last known value
  * while refreshing in background.
  */
-export function getGitStatus(providerBranch: string | null, pollingMode: GitPollingMode = "full"): GitStatus {
+export function getGitStatus(providerBranch: string | null, pollingMode: GitPollingMode = "full", cwd = process.cwd()): GitStatus {
+  cwd = useCwd(cwd);
   const now = Date.now();
-  const branch = pollingMode === "off" ? providerBranch : getCurrentBranch(providerBranch);
+  const branch = pollingMode === "off" ? providerBranch : getCurrentBranch(providerBranch, cwd);
 
   if (pollingMode !== "full") {
     return { branch, staged: 0, unstaged: 0, untracked: 0 };
   }
 
-  // Return cached if fresh
-  if (cachedStatus && now - cachedStatus.timestamp < CACHE_TTL_MS) {
-    return { 
-      branch, 
-      staged: cachedStatus.staged,
-      unstaged: cachedStatus.unstaged,
-      untracked: cachedStatus.untracked,
-    };
-  }
-
-  // Trigger background fetch if not already pending
-  if (!pendingFetch) {
+  // Refresh expired data in the background, serving the last known counts.
+  if (!pendingFetch && (!cachedStatus || now - cachedStatus.timestamp >= CACHE_TTL_MS)) {
     const fetchId = invalidationCounter; // Capture current counter
-    pendingFetch = fetchGitStatus().then((result) => {
+    pendingFetch = fetchGitStatus(cwd).then((result) => {
       // Cache result if no invalidation happened (including null for non-git dirs)
       if (fetchId === invalidationCounter) {
-        cachedStatus = result
+        const nextStatus = result
           ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked, timestamp: Date.now() }
           : { staged: 0, unstaged: 0, untracked: 0, timestamp: Date.now() };
-        notifyGitUpdate();
+        const changed = !cachedStatus
+          ? nextStatus.staged !== 0 || nextStatus.unstaged !== 0 || nextStatus.untracked !== 0
+          : cachedStatus.staged !== nextStatus.staged
+            || cachedStatus.unstaged !== nextStatus.unstaged
+            || cachedStatus.untracked !== nextStatus.untracked;
+        cachedStatus = nextStatus;
+        if (changed) notifyGitUpdate();
       }
-      pendingFetch = null;
+      if (fetchId === invalidationCounter) pendingFetch = null;
     });
   }
 
@@ -314,6 +345,7 @@ export function getGitStatus(providerBranch: string | null, pollingMode: GitPoll
 export function invalidateGitStatus(): void {
   if (cachedStatus) cachedStatus.timestamp = 0; // expire, but keep serving the stale value
   invalidationCounter++; // Increment to invalidate any pending fetches
+  pendingFetch = null;
 }
 
 /**
@@ -323,7 +355,9 @@ export function invalidateGitStatus(): void {
 export function invalidateGitBranch(): void {
   if (cachedBranch) cachedBranch.timestamp = 0; // expire, but keep serving the stale value
   branchInvalidationCounter++;
+  pendingBranchFetch = null;
   // The origin remote is repo-scoped, so a branch/cwd change may mean a
   // different repo; drop the host cache so it re-detects.
   cachedRemoteHost = null;
+  pendingRemoteFetch = null;
 }

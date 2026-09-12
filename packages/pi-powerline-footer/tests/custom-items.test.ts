@@ -26,6 +26,7 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.customItems[0].statusKey, "ci-status");
   assert.equal(config.customItems[1].statusKey, "review");
   assert.equal(config.customItems[1].hideWhenMissing, false);
+  assert.equal(config.customItems[0].selfColorize, false);
   assert.deepEqual(config.disabledSegments, []);
   assert.deepEqual(config.invalidDisabledSegments, []);
   assert.equal(config.layout, null);
@@ -34,7 +35,24 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.placement, "above");
   assert.equal(config.invalidPlacement, null);
   assert.equal(config.welcome, true);
-  assert.equal(config.stashSharpSShortcut, false);
+  assert.equal(config.welcomeMode, "overlay");
+  assert.equal("stashSharpSShortcut" in config, false);
+  assert.deepEqual(config.queue, { compactPromptMode: "queue" });
+});
+
+test("parsePowerlineConfig accepts self-colored custom items", () => {
+  const config = parsePowerlineConfig({ customItems: [{ id: "usage", color: "warning", selfColorize: true }] }, ["default"]);
+
+  assert.deepEqual(config.customItems, [{
+    id: "usage",
+    statusKey: "usage",
+    position: "right",
+    color: "warning",
+    selfColorize: true,
+    prefix: undefined,
+    hideWhenMissing: true,
+    excludeFromExtensionStatuses: true,
+  }]);
 });
 
 test("parsePowerlineConfig supports disabled segments", () => {
@@ -152,20 +170,36 @@ test("parsePowerlineConfig validates primary powerline placement", () => {
   assert.equal(invalid.invalidPlacement, "sideways");
 });
 
-
-
-
-test("parsePowerlineConfig supports welcome and legacy sharp-S settings", () => {
-  const config = parsePowerlineConfig(
-    { preset: "compact", welcome: false, stashSharpSShortcut: true },
+test("parsePowerlineConfig supports queue compact prompt mode", () => {
+  const defaultConfig = parsePowerlineConfig({}, ["default", "compact"]);
+  const native = parsePowerlineConfig(
+    { queue: { compactPromptMode: "native" } },
+    ["default", "compact"],
+  );
+  const invalid = parsePowerlineConfig(
+    { queue: { compactPromptMode: "passthrough" } },
     ["default", "compact"],
   );
   const shorthand = parsePowerlineConfig("compact", ["default", "compact"]);
 
-  assert.equal(config.welcome, false);
-  assert.equal(config.stashSharpSShortcut, true);
+  assert.deepEqual(defaultConfig.queue, { compactPromptMode: "queue" });
+  assert.deepEqual(native.queue, { compactPromptMode: "native" });
+  assert.deepEqual(invalid.queue, { compactPromptMode: "queue" });
+  assert.deepEqual(shorthand.queue, { compactPromptMode: "queue" });
+});
+
+test("parsePowerlineConfig supports header welcome and ignores the retired sharp-S setting", () => {
+  const config = parsePowerlineConfig(
+    { preset: "compact", welcome: "header", stashSharpSShortcut: true },
+    ["default", "compact"],
+  );
+  const shorthand = parsePowerlineConfig("compact", ["default", "compact"]);
+
+  assert.equal(config.welcome, true);
+  assert.equal(config.welcomeMode, "header");
+  assert.equal("stashSharpSShortcut" in config, false);
   assert.equal(shorthand.welcome, true);
-  assert.equal(shorthand.stashSharpSShortcut, false);
+  assert.equal(shorthand.welcomeMode, "overlay");
 });
 test("parsePowerlineConfig extracts supported segment options", () => {
   const config = parsePowerlineConfig(
@@ -216,6 +250,7 @@ test("mergeSegmentOptions lets user config override preset segment defaults", ()
       git: { showBranch: true, showUntracked: false },
       time: {},
       cost: { subscriptionDisplay: "reported-cost" },
+      usage: {},
       context: {},
       cache_read: {},
     },

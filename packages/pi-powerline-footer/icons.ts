@@ -21,6 +21,7 @@ export interface IconSet {
   session: string;
   auto: string;
   warning: string;
+  hourglass: string;
 }
 
 // Separator characters
@@ -74,6 +75,7 @@ export const NERD_ICONS: IconSet = {
   session: "\uF550",    // nf-md-identifier (session id)
   auto: "\u{F0068}",    // nf-md-lightning_bolt (auto-compact)
   warning: "\uF071",    // nf-fa-warning
+  hourglass: "\uF252",  // nf-fa-hourglass_half (time until a usage window resets)
 };
 
 // ASCII/Unicode fallback icons (matching oh-my-pi)
@@ -98,6 +100,7 @@ export const ASCII_ICONS: IconSet = {
   session: "id",
   auto: "AC",
   warning: "!",
+  hourglass: "⧗",
 };
 
 type PartialIconSet = Partial<IconSet>;
@@ -162,7 +165,7 @@ export const ASCII_SEPARATORS: SeparatorChars = {
   dot: ".",
 };
 
-// Detect Nerd Font support (check TERM or specific env var)
+// Infer Nerd Font support from environment overrides and terminal-name heuristics.
 export function hasNerdFonts(): boolean {
   // User can set this env var to force Nerd Fonts
   if (process.env.POWERLINE_NERD_FONTS === "1") return true;
@@ -171,9 +174,10 @@ export function hasNerdFonts(): boolean {
   // Check for Ghostty (survives into tmux via GHOSTTY_RESOURCES_DIR)
   if (process.env.GHOSTTY_RESOURCES_DIR) return true;
   
-  // Check common terminals known to support Nerd Fonts (case-insensitive)
-  const term = (process.env.TERM_PROGRAM || "").toLowerCase();
-  const nerdTerms = ["iterm", "wezterm", "kitty", "ghostty", "alacritty"];
+  // Use TERM only when TERM_PROGRAM is unset (e.g. kitty uses TERM=xterm-kitty).
+  // Terminal names are a heuristic, not detection of the configured font.
+  const term = (process.env.TERM_PROGRAM ?? process.env.TERM ?? "").toLowerCase();
+  const nerdTerms = ["iterm", "wezterm", "kitty", "ghostty", "alacritty", "kaku"];
   return nerdTerms.some(t => term.includes(t));
 }
 

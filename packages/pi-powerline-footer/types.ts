@@ -40,6 +40,7 @@ export const BUILTIN_STATUS_LINE_SEGMENT_IDS = [
   "token_out",
   "token_total",
   "cost",
+  "usage",
   "context_pct",
   "context_total",
   "time_spent",
@@ -100,6 +101,7 @@ export interface StatusLineSegmentOptions {
   };
   time?: { format?: "12h" | "24h"; showSeconds?: boolean };
   cost?: { subscriptionDisplay?: "subscription" | "reported-cost" | "both"; currency?: CostCurrencyCode };
+  usage?: { windowHours?: number; format?: "full" | "percent" };
   context?: { format?: "full" | "percent" };
   cache_read?: { format?: "tokens" | "percent" | "both" };
 }
@@ -117,6 +119,7 @@ export interface CustomStatusItem {
   statusKey: string;
   position: CustomItemPosition;
   color?: ColorValue;
+  selfColorize: boolean;
   prefix?: string;
   hideWhenMissing: boolean;
   excludeFromExtensionStatuses: boolean;
@@ -163,6 +166,12 @@ export interface QueueSummary {
   leadingStatus: "queued" | "blocked" | "delivering" | "sent" | "failed" | null;
 }
 
+/** The one subscription usage window shown in the footer, as a fraction used plus its reset time. */
+export interface SubscriptionUsageWindow {
+  used: number;
+  resetsAt: number;
+}
+
 export interface UsageStats {
   input: number;
   output: number;
@@ -198,6 +207,7 @@ export interface SegmentContext {
   autoCompactEnabled: boolean;
   customCompactionEnabled: boolean;
   usingSubscription: boolean;
+  usageWindow: SubscriptionUsageWindow | null;
   queueSummary: QueueSummary;
   sessionStartTime: number;
   shellModeActive: boolean;

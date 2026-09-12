@@ -136,9 +136,9 @@ const pathSegment: StatusLineSegment = {
  * enabled and a remote is known, otherwise the plain branch icon. An
  * unrecognized remote falls back to the generic git logo.
  */
-function resolveBranchIcon(icons: IconSet, hostIcon: boolean): string {
+function resolveBranchIcon(icons: IconSet, hostIcon: boolean, cwd: string | undefined): string {
   if (!hostIcon) return icons.branch;
-  const host = getGitRemoteHost();
+  const host = getGitRemoteHost(cwd);
   const byHost: Record<GitHost, string> = {
     github: icons.github,
     gitlab: icons.gitlab,
@@ -168,7 +168,7 @@ const gitSegment: StatusLineSegment = {
     let content = "";
     if (showBranch && branch) {
       // Color just the branch name (icon + branch text)
-      const branchIcon = resolveBranchIcon(icons, opts.hostIcon === true);
+      const branchIcon = resolveBranchIcon(icons, opts.hostIcon === true, ctx.cwd);
       content = color(ctx, branchColor, withIcon(branchIcon, branch));
     }
 
@@ -330,6 +330,23 @@ const costSegment: StatusLineSegment = {
     }
 
     return { content: color(ctx, "cost", "(sub)"), visible: true };
+  },
+};
+
+const usageSegment: StatusLineSegment = {
+  id: "usage",
+  render(ctx) {
+    const window = ctx.usageWindow;
+    if (!window) return { content: "", visible: false };
+
+    const percent = `sub ${Math.round(window.used * 100)}%`;
+    const untilReset = window.resetsAt - Date.now();
+    const showCountdown = ctx.options.usage?.format !== "percent" && untilReset > 0;
+    const content = showCountdown
+      ? `${percent} ${getIcons().hourglass} ${formatDuration(untilReset)}`
+      : percent;
+
+    return { content: color(ctx, "cost", content), visible: true };
   },
 };
 
@@ -520,6 +537,7 @@ export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   token_out: tokenOutSegment,
   token_total: tokenTotalSegment,
   cost: costSegment,
+  usage: usageSegment,
   context_pct: contextPctSegment,
   context_total: contextTotalSegment,
   time_spent: timeSpentSegment,
@@ -537,7 +555,7 @@ function renderCustomSegment(id: `custom:${string}`, ctx: SegmentContext): Rende
   if (!custom) return { content: "", visible: false };
 
   const rawStatus = ctx.extensionStatuses.get(custom.statusKey);
-  const normalizedStatus = rawStatus ? normalizeExtensionStatusValue(rawStatus) : null;
+  const normalizedStatus = rawStatus ? normalizeExtensionStatusValue(rawStatus, custom.selfColorize) : null;
   if (!normalizedStatus) {
     return custom.hideWhenMissing ? { content: "", visible: false } : { content: custom.prefix ?? custom.id, visible: true };
   }
@@ -546,7 +564,7 @@ function renderCustomSegment(id: `custom:${string}`, ctx: SegmentContext): Rende
   if (custom.prefix) {
     content = `${custom.prefix}${SEP_DOT}${content}`;
   }
-  if (custom.color) {
+  if (custom.color && !custom.selfColorize) {
     content = applyColor(ctx.theme, custom.color, content);
   }
 

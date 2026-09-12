@@ -3,18 +3,16 @@ import { dirname } from "node:path";
 
 export type GlyphMode = "unicode" | "nerd-font" | "ascii";
 export type BorderStyle = "rounded" | "sharp" | "none";
-export type SeparatorStyle = "chevron" | "powerline" | "dot" | "none";
 export type ThemeMode = "profile" | "inherit";
+export type ToolCardStyle = "boxed" | "minimal";
 
 export interface VisualProfileConfig {
 	enabled: boolean;
 	themeMode: ThemeMode;
 	glyphMode: GlyphMode;
 	borderStyle: BorderStyle;
-	separatorStyle: SeparatorStyle;
 	padding: number;
-	footerRows: number;
-	usageWindowHours: number;
+	toolCardStyle: ToolCardStyle;
 }
 
 export const DEFAULT_CONFIG: VisualProfileConfig = {
@@ -22,10 +20,8 @@ export const DEFAULT_CONFIG: VisualProfileConfig = {
 	themeMode: "profile",
 	glyphMode: "unicode",
 	borderStyle: "rounded",
-	separatorStyle: "chevron",
 	padding: 1,
-	footerRows: 2,
-	usageWindowHours: 5,
+	toolCardStyle: "boxed",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,18 +40,10 @@ function parseConfigPatch(value: unknown): Partial<VisualProfileConfig> {
 		...(isOneOf(value.themeMode, ["profile", "inherit"]) ? { themeMode: value.themeMode } : {}),
 		...(isOneOf(value.glyphMode, ["unicode", "nerd-font", "ascii"]) ? { glyphMode: value.glyphMode } : {}),
 		...(isOneOf(value.borderStyle, ["rounded", "sharp", "none"]) ? { borderStyle: value.borderStyle } : {}),
-		...(isOneOf(value.separatorStyle, ["chevron", "powerline", "dot", "none"])
-			? { separatorStyle: value.separatorStyle }
-			: {}),
 		...(typeof value.padding === "number" && Number.isInteger(value.padding) && value.padding >= 0 && value.padding <= 3
 			? { padding: value.padding }
 			: {}),
-		...(typeof value.footerRows === "number" && Number.isInteger(value.footerRows) && value.footerRows >= 1 && value.footerRows <= 3
-			? { footerRows: value.footerRows }
-			: {}),
-		...(typeof value.usageWindowHours === "number" && Number.isFinite(value.usageWindowHours) && value.usageWindowHours > 0
-			? { usageWindowHours: value.usageWindowHours }
-			: {}),
+		...(isOneOf(value.toolCardStyle, ["boxed", "minimal"]) ? { toolCardStyle: value.toolCardStyle } : {}),
 	};
 }
 

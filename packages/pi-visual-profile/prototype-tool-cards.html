@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PI-33 tool card prototype</title>
+<style>
+:root {
+	color-scheme: light dark;
+	--page: #f7fafc;
+	--card: #ffffff;
+	--ink: #24303f;
+	--muted: #64748b;
+	--dim: #8b98a8;
+	--accent: #157a78;
+	--success: #39754b;
+	--warning: #88630e;
+	--error: #a33a50;
+	--line: #bdcad8;
+	--pending: #edf2f7;
+	--success-bg: #e5f0e7;
+	--warning-bg: #fffae5;
+	--error-bg: #f4e7e9;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--page: #161d27;
+		--card: #202936;
+		--ink: #d8dee9;
+		--muted: #8b97a9;
+		--dim: #596579;
+		--accent: #74c7c3;
+		--success: #a6da95;
+		--warning: #eed49f;
+		--error: #ed8796;
+		--line: #536070;
+		--pending: #202936;
+		--success-bg: #24372c;
+		--warning-bg: #3c3728;
+		--error-bg: #3b2832;
+	}
+}
+* { box-sizing: border-box; }
+body { margin: 0 auto 6rem; max-width: 70rem; padding: 2rem 1rem; background: var(--page); color: var(--ink); font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+h1 { margin: 0; font: 700 1.5rem/1.2 system-ui, sans-serif; }
+p { color: var(--muted); }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 31rem), 1fr)); }
+.card { background: var(--card); min-width: 0; }
+.minimal .card { padding: 0; background: transparent; }
+.boxed .card { border: 1px solid var(--line); border-radius: .45rem; overflow: hidden; }
+.header { display: flex; gap: .6rem; align-items: baseline; min-width: 0; }
+.boxed .header { padding: .6rem .8rem; background: var(--pending); border-bottom: 1px solid var(--line); }
+.title { color: var(--accent); font-weight: 700; flex: none; }
+.argument { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.state { margin-left: auto; white-space: nowrap; font-size: .8rem; font-weight: 700; }
+.success .state { color: var(--success); }
+.pending .state { color: var(--warning); }
+.error .state { color: var(--error); }
+.boxed .success .header { background: var(--success-bg); }
+.boxed .pending .header { background: var(--warning-bg); }
+.boxed .error .header { background: var(--error-bg); }
+.boxed .success .body { background: var(--success-bg); }
+.boxed .pending .body { background: var(--pending); }
+.boxed .error .body { background: var(--error-bg); }
+.body { padding: .55rem .8rem .7rem; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.minimal .body { padding: .45rem 0 0; }
+.warning { color: var(--warning); margin-top: .4rem; }
+.error-text { color: var(--error); }
+.dim { color: var(--dim); }
+.bar { position: fixed; inset: auto 0 0; padding: .75rem 1rem; background: var(--card); border-top: 1px solid var(--line); display: flex; justify-content: center; gap: .5rem; align-items: center; font-family: system-ui, sans-serif; }
+.bar a { color: var(--accent); text-decoration: none; border: 1px solid var(--line); border-radius: .3rem; padding: .35rem .6rem; }
+.bar a[aria-current="page"] { background: var(--accent); color: var(--page); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>PI-33 tool cards: <span id="variant-name"></span></h1>
+<p>Prototype only. Compare the same collapsed, expanded, pending, successful, truncated, and error states at normal and narrow browser widths.</p>
+<main id="cards" class="grid"></main>
+<nav class="bar" aria-label="Prototype variants">
+	<span>Card grammar</span>
+	<a href="?variant=minimal" data-variant="minimal">Minimal</a>
+	<a href="?variant=boxed" data-variant="boxed">Boxed</a>
+</nav>
+<script>
+const variant = new URLSearchParams(location.search).get("variant") === "boxed" ? "boxed" : "minimal";
+document.getElementById("variant-name").textContent = variant;
+document.querySelector(`[data-variant="${variant}"]`).setAttribute("aria-current", "page");
+const cards = [
+	["success", "read", "src/very/deep/path/to/a-file-with-a-long-name.ts:120-159", "success", "export function renderCard() {\n  return highlightCode(source);\n}\n<span class=\"dim\">… 37 more lines. Ctrl+O to expand</span>"],
+	["pending", "grep", "/toolRendererProfile/ in packages/pi-visual-profile (limit 20)", "running", "<span class=\"dim\">Waiting for results. Elapsed 1.2s</span>"],
+	["success", "ls", "packages/pi-visual-profile", "success", "config.ts\nindex.ts\nthemes/ <span class=\"dim\">directory</span>\ntests/ <span class=\"dim\">directory</span>"],
+	["success", "bash", "npm run typecheck (timeout 120s)", "took 3.1s", "$ tsc --noEmit\n$ npm run typecheck --workspaces\n<span class=\"dim\">… 18 earlier lines. Ctrl+O to expand</span><div class=\"warning\">[Truncated: full output: /tmp/pi-output.log]</div>"],
+	["error", "powershell", "Get-ChildItem missing-path", "error", "<span class=\"error-text\">Get-ChildItem: Cannot find path 'missing-path' because it does not exist.</span>\n<span class=\"dim\">Took 0.1s</span>"],
+	["success", "find", "**/*.test.ts in packages (limit 3)", "success", "packages/pi-visual-profile/tests/config.test.ts\npackages/pi-visual-profile/tests/doctor.test.ts\npackages/pi-powerline-footer/tests/index.test.ts<div class=\"warning\">[Truncated: 3 results limit]</div>"]
+];
+document.getElementById("cards").className = `grid ${variant}`;
+document.getElementById("cards").innerHTML = cards.map(([state, tool, argument, label, body]) => `<section class="card ${state}"><div class="header"><span class="title">${tool}</span><span class="argument">${argument}</span><span class="state">${label}</span></div><div class="body">${body}</div></section>`).join("");
+</script>
+</body>
+</html>

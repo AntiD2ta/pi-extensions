@@ -1506,7 +1506,7 @@ test("bash editor right arrow accepts ghost text for one-off bang commands", asy
   assert.equal(accepted, true);
 });
 
-test("bash editor runs copied Pi app action handlers for alt-enter", async () => {
+test("bash editor runs copied Pi app action handlers for the follow-up binding", async () => {
   const { BashModeEditor } = await import("../bash-mode/editor.ts");
   const { KeybindingsManager } = await import(codingAgentModuleUrl("core/keybindings.js"));
   const { setKittyProtocolActive } = await import(piTuiModuleUrl("dist/keys.js"));
@@ -1535,12 +1535,15 @@ test("bash editor runs copied Pi app action handlers for alt-enter", async () =>
   });
 
   try {
+    const legacyFollowUp = process.platform === "win32" ? "\x11" : "\x1b\r";
+    const kittyFollowUp = process.platform === "win32" ? "\x1b[113;5u" : "\x1b[13;3u";
+
     setKittyProtocolActive(false);
-    editor.handleInput("\x1b\r");
+    editor.handleInput(legacyFollowUp);
     assert.equal(handled, 1);
 
     setKittyProtocolActive(true);
-    editor.handleInput("\x1b[13;3u");
+    editor.handleInput(kittyFollowUp);
     assert.equal(handled, 2);
   } finally {
     setKittyProtocolActive(false);
