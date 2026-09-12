@@ -269,6 +269,15 @@ function normalizeSegmentOptions(raw: Record<string, unknown>): StatusLineSegmen
     };
   }
 
+  if (isRecord(raw.usage)) {
+    options.usage = {
+      ...(typeof raw.usage.windowHours === "number" && Number.isFinite(raw.usage.windowHours) && raw.usage.windowHours > 0
+        ? { windowHours: raw.usage.windowHours }
+        : {}),
+      ...(raw.usage.format === "full" || raw.usage.format === "percent" ? { format: raw.usage.format } : {}),
+    };
+  }
+
   if (isRecord(raw.context)) {
     options.context = {
       ...(raw.context.format === "full" || raw.context.format === "percent" ? { format: raw.context.format } : {}),
@@ -298,6 +307,7 @@ export function mergeSegmentOptions(
     git: { ...defaults.git, ...overrides.git },
     time: { ...defaults.time, ...overrides.time },
     cost: { ...defaults.cost, ...overrides.cost },
+    usage: { ...defaults.usage, ...overrides.usage },
     context: { ...defaults.context, ...overrides.context },
     cache_read: { ...defaults.cache_read, ...overrides.cache_read },
   };

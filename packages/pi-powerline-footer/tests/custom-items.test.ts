@@ -250,6 +250,7 @@ test("mergeSegmentOptions lets user config override preset segment defaults", ()
       git: { showBranch: true, showUntracked: false },
       time: {},
       cost: { subscriptionDisplay: "reported-cost" },
+      usage: {},
       context: {},
       cache_read: {},
     },

@@ -333,6 +333,23 @@ const costSegment: StatusLineSegment = {
   },
 };
 
+const usageSegment: StatusLineSegment = {
+  id: "usage",
+  render(ctx) {
+    const window = ctx.usageWindow;
+    if (!window) return { content: "", visible: false };
+
+    const percent = `sub ${Math.round(window.used * 100)}%`;
+    const untilReset = window.resetsAt - Date.now();
+    const showCountdown = ctx.options.usage?.format !== "percent" && untilReset > 0;
+    const content = showCountdown
+      ? `${percent} ${getIcons().hourglass} ${formatDuration(untilReset)}`
+      : percent;
+
+    return { content: color(ctx, "cost", content), visible: true };
+  },
+};
+
 const contextPctSegment: StatusLineSegment = {
   id: "context_pct",
   render(ctx) {
@@ -520,6 +537,7 @@ export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   token_out: tokenOutSegment,
   token_total: tokenTotalSegment,
   cost: costSegment,
+  usage: usageSegment,
   context_pct: contextPctSegment,
   context_total: contextTotalSegment,
   time_spent: timeSpentSegment,
