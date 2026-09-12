@@ -39,9 +39,21 @@ const siblingToolExtension: ExtensionFactory = (pi) => {
 	});
 };
 
+const failingToolExtension: ExtensionFactory = (pi) => {
+	pi.registerTool({
+		name: "handled_failure",
+		label: "Handled failure",
+		description: "Throw a tool error so the model can handle it.",
+		parameters: Type.Object({}),
+		async execute() {
+			throw new Error("The tool failed.");
+		},
+	});
+};
+
 async function createHarness(
 	t: TestContext,
-	options: { root?: string; sessionFile?: string; withSiblingTool?: boolean } = {},
+	options: { root?: string; sessionFile?: string; withFailingTool?: boolean; withSiblingTool?: boolean; retry?: boolean } = {},
 ) {
 	const ownsRoot = options.root === undefined;
 	const root = options.root ?? mkdtempSync(join(tmpdir(), "pi-agent-status-"));
@@ -54,7 +66,7 @@ async function createHarness(
 	const { extension: fauxExtension, faux } = createTestFauxProvider();
 	const settingsManager = SettingsManager.inMemory({
 		compaction: { enabled: false },
-		retry: { enabled: false },
+		retry: { enabled: options.retry ?? false, maxRetries: 1, baseDelayMs: 1 },
 	});
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(agentDir, "auth.json"),
@@ -70,6 +82,7 @@ async function createHarness(
 			fauxExtension,
 			extension,
 			...(options.withSiblingTool ? [siblingToolExtension] : []),
+			...(options.withFailingTool ? [failingToolExtension] : []),
 		],
 		noSkills: true,
 		noPromptTemplates: true,
@@ -87,15 +100,21 @@ async function createHarness(
 		sessionManager: options.sessionFile
 			? SessionManager.open(options.sessionFile)
 			: SessionManager.create(cwd, sessionDir),
-		tools: options.withSiblingTool
-			? ["request_user_input", "nonterminating_sibling"]
-			: ["request_user_input"],
+		tools: [
+			"request_user_input",
+			...(options.withSiblingTool ? ["nonterminating_sibling"] : []),
+			...(options.withFailingTool ? ["handled_failure"] : []),
+		],
 	});
 
-	const statuses: Array<[string, string | undefined]> = [];
+	const widgets: Array<[string, string[] | undefined]> = [];
 	const uiContext = {
-		setStatus(key: string, value: string | undefined) {
-			statuses.push([key, value]);
+		setWidget(key: string, value: string[] | undefined) {
+			widgets.push([key, value]);
+		},
+		theme: {
+			fg: (_color: string, text: string) => text,
+			bg: (_color: string, text: string) => text,
 		},
 	} as unknown as ExtensionUIContext;
 	const events: AgentSessionEvent[] = [];
@@ -111,11 +130,11 @@ async function createHarness(
 	};
 	t.after(dispose);
 
-	return { dispose, events, faux, session, statuses };
+	return { dispose, events, faux, session, widgets };
 }
 
 test("request_user_input ends the run without a follow-up model turn", async (t) => {
-	const { events, faux, session, statuses } = await createHarness(t);
+	const { events, faux, session, widgets } = await createHarness(t);
 	faux.setResponses([
 		fauxAssistantMessage(fauxToolCall("request_user_input", request), { stopReason: "toolUse" }),
 		fauxAssistantMessage("unexpected automatic follow-up"),
@@ -130,7 +149,50 @@ test("request_user_input ends the run without a follow-up model turn", async (t)
 	assert.equal(session.messages.some((message) =>
 		message.role === "assistant" && message.content.some((content) =>
 			content.type === "text" && content.text === "unexpected automatic follow-up")), false);
-	assert.deepEqual(statuses.at(-1), ["agent-status", "Needs input"]);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Needs input"]]);
+});
+
+test("terminal failures and interruptions keep their widget state", async (t) => {
+	const failure = await createHarness(t);
+	failure.faux.setResponses([
+		fauxAssistantMessage("", { stopReason: "error", errorMessage: "HTTP 400: invalid request" }),
+	]);
+	await failure.session.prompt("Fail this run.");
+	assert.deepEqual(failure.widgets.at(-1), ["agent-status", ["Failed"]]);
+
+	const interruption = await createHarness(t);
+	interruption.faux.setResponses([
+		fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "Request was aborted" }),
+	]);
+	await interruption.session.prompt("Interrupt this run.");
+	assert.deepEqual(interruption.widgets.at(-1), ["agent-status", ["Interrupted"]]);
+});
+
+test("a handled tool failure does not produce Failed", async (t) => {
+	const { faux, session, widgets } = await createHarness(t, { withFailingTool: true });
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("handled_failure", {}), { stopReason: "toolUse" }),
+		fauxAssistantMessage("I recovered from the tool failure."),
+	]);
+
+	await session.prompt("Use the failing tool.");
+
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed"]]);
+	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Failed"), false);
+});
+
+test("a retry replaces its earlier failure before settlement", async (t) => {
+	const { faux, session, widgets } = await createHarness(t, { retry: true });
+	faux.setResponses([
+		fauxAssistantMessage("", { stopReason: "error", errorMessage: "HTTP 503: overloaded" }),
+		fauxAssistantMessage("Recovered after retry."),
+	]);
+
+	await session.prompt("Retry this run.");
+
+	assert.equal(faux.state.callCount, 2);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed"]]);
+	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Failed"), false);
 });
 
 test("a non-terminating sibling tool result causes a follow-up model turn", async (t) => {
@@ -152,7 +214,7 @@ test("a non-terminating sibling tool result causes a follow-up model turn", asyn
 });
 
 test("the agent receives exclusive-call guidance and resumes from the next free-text prompt", async (t) => {
-	const { faux, session, statuses } = await createHarness(t);
+	const { faux, session, widgets } = await createHarness(t);
 	let firstContext: Context | undefined;
 	let resumedContext: Context | undefined;
 	faux.setResponses([
@@ -190,7 +252,8 @@ test("the agent receives exclusive-call guidance and resumes from the next free-
 	const response = entries.find((entry) =>
 		entry.type === "message" && entry.message.role === "user" && entry.parentId === resolution.id);
 	assert.ok(response);
-	assert.deepEqual(statuses.at(-1), ["agent-status", undefined]);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed"]]);
+	assert.equal(widgets.some(([, value]) => value?.[0] === "Ready"), true);
 });
 
 test("resuming restores an unanswered request without replaying its tool call", async (t) => {
@@ -212,7 +275,7 @@ test("resuming restores an unanswered request without replaying its tool call", 
 	assert.equal(resumed.faux.state.callCount, 0);
 	assert.equal(resumed.events.some((event) => event.type === "tool_execution_start"), false);
 	assert.equal(resumed.session.sessionManager.getEntries().length, entryCount);
-	assert.deepEqual(resumed.statuses.at(-1), ["agent-status", "Needs input"]);
+	assert.deepEqual(resumed.widgets.at(-1), ["agent-status", ["Needs input"]]);
 
 	resumed.faux.setResponses([fauxAssistantMessage("Continuing with PostgreSQL.")]);
 	await resumed.session.prompt("Use PostgreSQL.", { source: "interactive" });
@@ -226,5 +289,5 @@ test("resuming restores an unanswered request without replaying its tool call", 
 
 	const resolvedResume = await createHarness(t, { root, sessionFile });
 	assert.equal(resolvedResume.faux.state.callCount, 0);
-	assert.equal(resolvedResume.statuses.some(([, status]) => status === "Needs input"), false);
+	assert.equal(resolvedResume.widgets.some(([, widget]) => widget?.[0] === "Needs input"), false);
 });

@@ -14,6 +14,7 @@ function createFakePi() {
 	let tool: RegisteredTool | undefined;
 	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
 	const entries: Array<{ customType: string; data: unknown }> = [];
+	const widgets: Array<[string, string[] | undefined]> = [];
 	const pi = {
 		on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
 			handlers.set(event, handler);
@@ -28,6 +29,7 @@ function createFakePi() {
 	return {
 		pi: pi as unknown as ExtensionAPI,
 		entries,
+		widgets,
 		getHandler: (event: string) => handlers.get(event),
 		getTool: () => tool,
 	};
@@ -38,20 +40,26 @@ async function startSession(fake: ReturnType<typeof createFakePi>, mode: string)
 	assert.ok(sessionStart);
 	await sessionStart({ type: "session_start", reason: "startup" }, {
 		mode,
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
+			theme: { fg: (_color: string, text: string) => text },
+		},
 		sessionManager: { getBranch: () => [] },
 	});
 }
 
-test("request_user_input registers only for TUI sessions", async () => {
+test("a TUI session shows Ready above the editor", async () => {
 	const fake = createFakePi();
 	extension(fake.pi);
 	assert.equal(fake.getTool(), undefined);
 
 	await startSession(fake, "print");
 	assert.equal(fake.getTool(), undefined);
+	assert.deepEqual(fake.widgets, []);
 
 	await startSession(fake, "tui");
 	assert.ok(fake.getTool());
+	assert.deepEqual(fake.widgets, [["agent-status", ["Ready"]]]);
 });
 
 test("request_user_input requires every decision field", async () => {
@@ -142,42 +150,169 @@ test("a nonblank interactive response resolves the pending input request", async
 	}]);
 });
 
-test("the next agent run clears the needs-input status", async () => {
+test("agent lifecycle projects terminal states above the editor", async () => {
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
 	const agentStart = fake.getHandler("agent_start");
+	const agentEnd = fake.getHandler("agent_end");
+	const settled = fake.getHandler("agent_settled");
+	const input = fake.getHandler("input");
 	assert.ok(agentStart);
+	assert.ok(agentEnd);
+	assert.ok(settled);
+	assert.ok(input);
 
-	const statuses: Array<[string, string | undefined]> = [];
-	await agentStart({ type: "agent_start" }, {
-		ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) },
-	});
+	fake.widgets.length = 0;
+	const colors: Array<[string, string]> = [];
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
+			theme: { fg: (color: string, text: string) => {
+				colors.push([color, text]);
+				return text;
+			} },
+		},
+	};
+	await agentStart({ type: "agent_start" }, ctx);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "error" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+	await agentStart({ type: "agent_start" }, ctx);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "aborted" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+	await agentStart({ type: "agent_start" }, ctx);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+	await input({ type: "input", source: "interactive", text: "   " }, ctx);
+	await input({ type: "input", source: "interactive", text: "Continue." }, ctx);
 
-	assert.deepEqual(statuses, [["agent-status", undefined]]);
+	assert.deepEqual(fake.widgets, [
+		["agent-status", undefined],
+		["agent-status", ["Failed"]],
+		["agent-status", undefined],
+		["agent-status", ["Interrupted"]],
+		["agent-status", undefined],
+		["agent-status", ["Completed"]],
+		["agent-status", ["Ready"]],
+	]);
+	assert.deepEqual(colors, [
+		["error", "Failed"],
+		["error", "Interrupted"],
+		["accent", "Completed"],
+		["accent", "Ready"],
+	]);
 });
 
-test("a pending input request suppresses completion at settlement", async () => {
+test("an unresolved input request takes precedence at settlement and resolves to Ready", async () => {
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
 	const tool = fake.getTool();
+	const input = fake.getHandler("input");
+	const agentEnd = fake.getHandler("agent_end");
 	const settled = fake.getHandler("agent_settled");
 	assert.ok(tool);
+	assert.ok(input);
+	assert.ok(agentEnd);
 	assert.ok(settled);
 
+	fake.widgets.length = 0;
+	const colors: Array<[string, string]> = [];
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
+			theme: {
+				fg: (color: string, text: string) => {
+					colors.push([color, text]);
+					return text;
+				},
+				bg: (color: string, text: string) => {
+					colors.push([color, text]);
+					return text;
+				},
+			},
+		},
+	};
 	await tool.execute("request-1", {
 		context: "The project has two database options.",
 		question: "Which database should I use?",
 		recommendedAnswer: "PostgreSQL",
 		rationale: "It fits the existing deployment platform.",
 	});
-	const statuses: Array<[string, string | undefined]> = [];
-	await settled({ type: "agent_settled" }, {
-		ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) },
-	});
+	assert.deepEqual(fake.widgets, []);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "error" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "aborted" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+	await input({ type: "input", source: "interactive", text: "Use PostgreSQL." }, ctx);
 
-	assert.deepEqual(statuses, [["agent-status", "Needs input"]]);
+	assert.deepEqual(fake.widgets, [
+		["agent-status", ["Needs input"]],
+		["agent-status", ["Needs input"]],
+		["agent-status", ["Ready"]],
+	]);
+	assert.deepEqual(colors, [
+		["warning", "Needs input"],
+		["toolPendingBg", "Needs input"],
+		["warning", "Needs input"],
+		["toolPendingBg", "Needs input"],
+	]);
+});
+
+test("the latest agent end replaces an earlier terminal result", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const agentEnd = fake.getHandler("agent_end");
+	const settled = fake.getHandler("agent_settled");
+	assert.ok(agentEnd);
+	assert.ok(settled);
+
+	const widgets: Array<[string, string[] | undefined]> = [];
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => widgets.push([key, value]),
+			theme: { fg: (_color: string, text: string) => text },
+		},
+	};
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "error" }] }, ctx);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "aborted" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+
+	assert.deepEqual(widgets, [["agent-status", ["Interrupted"]]]);
+});
+
+test("a session reload discards terminal presentation state", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const agentEnd = fake.getHandler("agent_end");
+	const settled = fake.getHandler("agent_settled");
+	const sessionStart = fake.getHandler("session_start");
+	assert.ok(agentEnd);
+	assert.ok(settled);
+	assert.ok(sessionStart);
+
+	const widgets: Array<[string, string[] | undefined]> = [];
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => widgets.push([key, value]),
+			theme: { fg: (_color: string, text: string) => text },
+		},
+		sessionManager: { getBranch: () => [] },
+	};
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "error" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+	await sessionStart({ type: "session_start", reason: "reload" }, ctx);
+
+	assert.deepEqual(widgets, [
+		["agent-status", ["Failed"]],
+		["agent-status", ["Ready"]],
+	]);
 });
 
 test("resuming restores an unanswered input request", async () => {
@@ -187,11 +322,17 @@ test("resuming restores an unanswered input request", async () => {
 	const input = fake.getHandler("input");
 	assert.ok(sessionStart);
 	assert.ok(input);
-	const statuses: Array<[string, string | undefined]> = [];
+	const widgets: Array<[string, string[] | undefined]> = [];
 
 	await sessionStart({ type: "session_start", reason: "resume" }, {
 		mode: "tui",
-		ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) },
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => widgets.push([key, value]),
+			theme: {
+				fg: (_color: string, text: string) => text,
+				bg: (_color: string, text: string) => text,
+			},
+		},
 		sessionManager: {
 			getBranch: () => [{
 				type: "message",
@@ -212,7 +353,7 @@ test("resuming restores an unanswered input request", async () => {
 		},
 	});
 
-	assert.deepEqual(statuses, [["agent-status", "Needs input"]]);
+	assert.deepEqual(widgets, [["agent-status", ["Needs input"]]]);
 
 	await input({ type: "input", source: "interactive", text: "Use PostgreSQL." }, {});
 	assert.deepEqual(fake.entries, [{
@@ -260,6 +401,10 @@ test("resuming does not restore a request resolved by its direct child user mess
 	};
 	await sessionStart({ type: "session_start", reason: "resume" }, {
 		mode: "tui",
+		ui: {
+			setWidget: () => {},
+			theme: { fg: (_color: string, text: string) => text },
+		},
 		sessionManager: {
 			getBranch: () => [requestResult, resolution, userResponse],
 			getChildren: (id: string) => id === "resolution" ? [userResponse] : [],

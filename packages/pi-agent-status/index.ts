@@ -1,6 +1,9 @@
-import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import type { StopReason } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
+
+import { createUnresolvedInputState, type InputRequest } from "./input-state.ts";
 
 const requestUserInputParameters = Type.Object({
 	context: Type.String({ minLength: 1, description: "Context needed to make the decision" }),
@@ -9,29 +12,36 @@ const requestUserInputParameters = Type.Object({
 	rationale: Type.String({ minLength: 1, description: "Why this answer is recommended" }),
 });
 
-type RequestUserInput = Static<typeof requestUserInputParameters>;
+type AgentState = "Ready" | "Running" | "Needs input" | "Completed" | "Failed" | "Interrupted";
 
-interface InputRequest extends RequestUserInput {
-	toolCallId: string;
+function widgetColor(state: AgentState): "accent" | "warning" | "error" {
+	switch (state) {
+		case "Needs input": return "warning";
+		case "Failed":
+		case "Interrupted": return "error";
+		default: return "accent";
+	}
 }
 
-interface InputResolution {
-	toolCallId: string;
-}
-
-function isInputRequest(value: unknown): value is RequestUserInput {
-	if (!value || typeof value !== "object") return false;
-	const details = value as Record<string, unknown>;
-	return [details.context, details.question, details.recommendedAnswer, details.rationale]
-		.every((field) => typeof field === "string" && field.length > 0);
-}
-
-function isInputResolution(value: unknown): value is InputResolution {
-	return Boolean(value && typeof value === "object" && typeof (value as Record<string, unknown>).toolCallId === "string");
+function renderState(ctx: ExtensionContext, state: AgentState) {
+	if (ctx.mode !== "tui") return;
+	if (state === "Running") {
+		ctx.ui.setWidget("agent-status", undefined);
+		return;
+	}
+	const label = ctx.ui.theme.fg(widgetColor(state), state);
+	ctx.ui.setWidget("agent-status", [state === "Needs input" ? ctx.ui.theme.bg("toolPendingBg", label) : label]);
 }
 
 export default function (pi: ExtensionAPI) {
-	let unresolvedRequest: InputRequest | undefined;
+	const inputState = createUnresolvedInputState(pi);
+	let presentationState: AgentState = "Ready";
+	let latestStopReason: StopReason | undefined;
+
+	const setPresentationState = (ctx: ExtensionContext, next: AgentState) => {
+		presentationState = next;
+		renderState(ctx, presentationState);
+	};
 
 	const requestUserInputTool = defineTool<typeof requestUserInputParameters, InputRequest>({
 		name: "request_user_input",
@@ -43,8 +53,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		parameters: requestUserInputParameters,
 		async execute(toolCallId, params) {
-			const request = { ...params, toolCallId };
-			unresolvedRequest = request;
+			const request = inputState.requestInput(toolCallId, params);
 			return {
 				content: [{ type: "text", text: "Waiting for user input." }],
 				details: request,
@@ -69,38 +78,43 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 		pi.registerTool(requestUserInputTool);
-		unresolvedRequest = undefined;
-		const branch = ctx.sessionManager.getBranch();
-		for (const entry of branch) {
-			if (entry.type === "message" && entry.message.role === "toolResult") {
-				if (entry.message.toolName === "request_user_input" && isInputRequest(entry.message.details)) {
-					unresolvedRequest = { ...entry.message.details, toolCallId: entry.message.toolCallId };
-				}
-				continue;
+		inputState.restore(ctx);
+		inputState.onUnresolvedInputChange(() => {
+			if (!inputState.isUnresolved() && presentationState !== "Running") {
+				setPresentationState(ctx, "Ready");
 			}
-			if (entry.type !== "custom" || entry.customType !== "agent-status-input-resolution") continue;
-			if (!unresolvedRequest || !isInputResolution(entry.data) || entry.data.toolCallId !== unresolvedRequest.toolCallId) continue;
-			const isResolved = branch.some((child) =>
-				child.parentId === entry.id && child.type === "message" && child.message.role === "user");
-			if (isResolved) unresolvedRequest = undefined;
-		}
-		if (unresolvedRequest) ctx.ui.setStatus("agent-status", "Needs input");
+		});
+		setPresentationState(ctx, inputState.isUnresolved() ? "Needs input" : "Ready");
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
-		ctx.ui.setStatus("agent-status", undefined);
+		latestStopReason = undefined;
+		setPresentationState(ctx, "Running");
+	});
+
+	pi.on("agent_end", (event) => {
+		const assistant = [...event.messages].reverse().find((message) => message.role === "assistant");
+		latestStopReason = assistant?.stopReason;
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {
-		if (unresolvedRequest) ctx.ui.setStatus("agent-status", "Needs input");
+		if (inputState.isUnresolved()) {
+			setPresentationState(ctx, "Needs input");
+			return;
+		}
+		setPresentationState(ctx, latestStopReason === "aborted"
+			? "Interrupted"
+			: latestStopReason === "error" ? "Failed" : "Completed");
 	});
 
-	pi.on("input", (event) => {
-		if (event.source !== "interactive" || event.text.trim().length === 0 || !unresolvedRequest) return;
-		pi.appendEntry<InputResolution>("agent-status-input-resolution", {
-			toolCallId: unresolvedRequest.toolCallId,
-		});
-		unresolvedRequest = undefined;
+	pi.on("input", (event, ctx) => {
+		if (event.source !== "interactive" || event.text.trim().length === 0) return;
+		if (inputState.resolveInput()) {
+			return { action: "continue" };
+		}
+		if (presentationState === "Completed" || presentationState === "Failed" || presentationState === "Interrupted") {
+			setPresentationState(ctx, "Ready");
+		}
 		return { action: "continue" };
 	});
 }
