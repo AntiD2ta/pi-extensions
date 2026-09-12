@@ -1,13 +1,13 @@
 <!doctype html>
 <!--
-THROWAWAY PROTOTYPE: Three widget and terminal-title treatments, switchable via ?variant=.
+THROWAWAY PROTOTYPE: Three above-editor status-widget treatments, switchable via ?variant=.
 Open this file directly in a browser. This is not production extension code.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent status presentation prototype</title>
+<title>Agent status widget prototype</title>
 <style>
 :root {
 	color-scheme: light dark;
@@ -44,7 +44,7 @@ Open this file directly in a browser. This is not production extension code.
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: var(--bg); color: var(--ink); font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-main { max-width: 1040px; margin: 0 auto; padding: 48px 24px 112px; }
+main { max-width: 960px; margin: 0 auto; padding: 48px 24px 112px; }
 h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 38px); line-height: 1.1; letter-spacing: -.05em; }
 p { color: var(--muted); margin: 0; }
 .intro { display: grid; gap: 18px; grid-template-columns: 1fr auto; align-items: end; margin-bottom: 28px; }
@@ -52,27 +52,21 @@ p { color: var(--muted); margin: 0; }
 button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 7px 10px; font: inherit; cursor: pointer; }
 button:hover, button.active { border-color: var(--accent); color: var(--accent); }
 button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.variant { display: none; }
-.variant.active { display: block; }
+.variant { display: none; }.variant.active { display: block; }
 .label { color: var(--muted); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
 .terminal { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); box-shadow: var(--shadow); }
-.titlebar { display: flex; align-items: center; gap: 9px; min-height: 39px; padding: 0 14px; background: var(--terminal); color: var(--terminal-ink); font-size: 13px; }
-.lights { display: flex; gap: 5px; }.light { width: 10px; height: 10px; border-radius: 50%; background: #d96862; }.light:nth-child(2) { background: #d5a842; }.light:nth-child(3) { background: #64af73; }
-.title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; margin-right: auto; }
 .transcript { min-height: 254px; padding: 26px 28px; color: var(--terminal-ink); background: var(--terminal); }
 .transcript p { color: inherit; margin: 0 0 10px; }.prompt { color: var(--accent); }.dim { opacity: .62; }
-.editor { padding: 15px 18px; border-top: 1px solid var(--line); color: var(--muted); }
-.editor strong { color: var(--ink); }
+.editor { padding: 15px 18px; border-top: 1px solid var(--line); color: var(--muted); }.editor strong { color: var(--ink); }
 .widget { display: none; }.widget.visible { display: flex; }
 .state-ready { --state: var(--accent); --state-bg: var(--accent-ink); }.state-needs-input { --state: var(--warning); --state-bg: #f8eddc; }.state-completed { --state: var(--accent); --state-bg: var(--accent-ink); }.state-failed, .state-interrupted { --state: var(--danger); --state-bg: var(--danger-ink); }
 @media (prefers-color-scheme: dark) { .state-needs-input { --state-bg: #493415; } }
-/* Variant A: compact, sentence-like status row */
-.v-a .widget { align-items: center; gap: 9px; margin: 14px 18px 0; padding: 8px 10px; border-left: 3px solid var(--state); background: var(--state-bg); color: var(--state); }
-.v-a .widget strong { color: var(--ink); }.v-a .widget span:last-child { margin-left: auto; color: var(--muted); font-size: 12px; }
-/* Variant B: a persistent ledger that makes the terminal title secondary */
-.v-b { display: grid; grid-template-columns: 200px 1fr; gap: 18px; }.v-b .ledger { padding: 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); box-shadow: var(--shadow); }.v-b .ledger h2 { font-size: 13px; margin: 0 0 18px; }.v-b .step { display: flex; gap: 10px; padding: 8px 0; color: var(--muted); }.v-b .step.active { color: var(--state); font-weight: 700; }.v-b .step .dot { width: 9px; height: 9px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; margin-top: 6px; }.v-b .step.active .dot { background: currentColor; }.v-b .widget { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--state-bg); color: var(--state); flex-direction: column; gap: 2px; }.v-b .widget strong { font-size: 18px; color: var(--ink); }
-/* Variant C: title-mirroring status strip, designed for rapid scanning */
-.v-c .widget { margin: 0; padding: 11px 18px; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); background: var(--state-bg); }.v-c .symbol { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 5px; background: var(--state); color: var(--state-bg); font-weight: 800; }.v-c .widget strong { color: var(--state); }.v-c .widget small { color: var(--muted); margin-left: auto; }.v-c .terminal { display: flex; flex-direction: column; }.v-c .titlebar { order: -1; }
+/* Variant A: selected treatment, a quiet one-line state row. */
+.v-a .widget { align-items: center; margin: 14px 18px 0; padding: 8px 10px; border-left: 3px solid var(--state); background: var(--state-bg); color: var(--ink); }.v-a .widget strong { font-weight: 700; }
+/* Variant B: a lifecycle ledger that deliberately exceeds the single-line requirement. */
+.v-b { display: grid; grid-template-columns: 200px 1fr; gap: 18px; }.v-b .ledger { padding: 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); box-shadow: var(--shadow); }.v-b .ledger h2 { font-size: 13px; margin: 0 0 18px; }.v-b .step { display: flex; gap: 10px; padding: 8px 0; color: var(--muted); }.v-b .step.active { color: var(--state); font-weight: 700; }.v-b .step .dot { width: 9px; height: 9px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; margin-top: 6px; }.v-b .step.active .dot { background: currentColor; }.v-b .widget { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--state-bg); color: var(--state); }.v-b .widget strong { font-size: 18px; color: var(--ink); }
+/* Variant C: a more prominent, symbol-led one-line row. */
+.v-c .widget { margin: 0; padding: 11px 18px; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); background: var(--state-bg); }.v-c .symbol { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 5px; background: var(--state); color: var(--state-bg); font-weight: 800; }.v-c .widget strong { color: var(--state); }
 .switcher { position: fixed; z-index: 1; bottom: 18px; left: 50%; display: flex; align-items: center; gap: 10px; transform: translateX(-50%); padding: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); box-shadow: var(--shadow); }.switcher button { border: 0; border-radius: 50%; font-size: 18px; line-height: 1; }.switcher output { min-width: 150px; text-align: center; color: var(--muted); }
 .note { margin: 18px 0 9px; }
 @media (max-width: 680px) { main { padding-inline: 14px; }.intro { grid-template-columns: 1fr; }.statuses { justify-content: flex-start; }.v-b { grid-template-columns: 1fr; }.v-b .ledger { display: flex; gap: 10px; overflow: auto; }.v-b .ledger h2 { display: none; }.v-b .step { white-space: nowrap; }.transcript { padding: 20px; } }
@@ -81,59 +75,17 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 <body>
 <main>
 	<div class="intro">
-		<div><div class="label">Throwaway UI prototype</div><h1>Agent state presentation</h1><p>Compare non-running widgets against the terminal title. Running deliberately has no custom widget.</p></div>
-		<div class="statuses" aria-label="Preview state">
-			<button data-state="ready">Ready</button><button data-state="running">Running</button><button data-state="needs-input">Needs input</button><button data-state="completed">Completed</button><button data-state="failed">Failed</button><button data-state="interrupted">Interrupted</button>
-		</div>
+		<div><div class="label">Throwaway UI prototype</div><h1>Agent state presentation</h1><p>Compare non-running above-editor widgets. Running deliberately has no custom widget.</p></div>
+		<div class="statuses" aria-label="Preview state"><button data-state="ready">Ready</button><button data-state="running">Running</button><button data-state="needs-input">Needs input</button><button data-state="completed">Completed</button><button data-state="failed">Failed</button><button data-state="interrupted">Interrupted</button></div>
 	</div>
-
-	<section class="variant v-a" data-variant="a">
-		<div class="label">A · Quiet status line</div>
-		<div class="terminal state-ready">
-			<div class="titlebar"><div class="lights"><i class="light"></i><i class="light"></i><i class="light"></i></div><div class="title"></div></div>
-			<div class="widget"><strong></strong><span></span></div>
-			<div class="transcript"><p><span class="prompt">›</span> Review PI-6 and prepare a plan.</p><p class="dim">I’ll inspect the work item and its dependencies.</p></div>
-			<div class="editor"><strong>›</strong> Ask anything, or continue the session…</div>
-		</div>
-		<p class="note">The status is a restrained replacement row. It yields entirely to Pi’s native working indicator.</p>
-	</section>
-
-	<section class="variant v-b" data-variant="b">
-		<div class="label">B · Lifecycle ledger</div>
-		<div class="v-b state-ready">
-			<aside class="ledger"><h2>Session lifecycle</h2><div class="step" data-step="ready"><span class="dot"></span>Ready</div><div class="step" data-step="running"><span class="dot"></span>Running</div><div class="step" data-step="needs-input"><span class="dot"></span>Needs input</div><div class="step" data-step="completed"><span class="dot"></span>Completed</div><div class="step" data-step="failed"><span class="dot"></span>Failed</div><div class="step" data-step="interrupted"><span class="dot"></span>Interrupted</div></aside>
-			<div class="terminal"><div class="titlebar"><div class="lights"><i class="light"></i><i class="light"></i><i class="light"></i></div><div class="title"></div></div><div class="widget"><strong></strong><span></span></div><div class="transcript"><p><span class="prompt">›</span> Review PI-6 and prepare a plan.</p><p class="dim">Session state appears in the terminal title and lifecycle ledger.</p></div><div class="editor"><strong>›</strong> Ask anything, or continue the session…</div></div>
-		</div>
-		<p class="note">The complete state machine is visible, but it competes with the transcript and does not fit a minimal extension.</p>
-	</section>
-
-	<section class="variant v-c" data-variant="c">
-		<div class="label">C · Symbol-forward strip</div>
-		<div class="terminal state-ready">
-			<div class="titlebar"><div class="lights"><i class="light"></i><i class="light"></i><i class="light"></i></div><div class="title"></div></div>
-			<div class="widget"><span class="symbol"></span><strong></strong><small></small></div>
-			<div class="transcript"><p><span class="prompt">›</span> Review PI-6 and prepare a plan.</p><p class="dim">The widget repeats the compact status semantics used by the window title.</p></div>
-			<div class="editor"><strong>›</strong> Ask anything, or continue the session…</div>
-		</div>
-		<p class="note">The symbol creates a stronger scan target, but may make ordinary Ready and Completed states unnecessarily prominent.</p>
-	</section>
+	<section class="variant v-a" data-variant="a"><div class="label">A · Quiet status line</div><div class="terminal state-ready"><div class="widget"><strong></strong></div><div class="transcript"><p><span class="prompt">›</span> Review PI-6 and prepare a plan.</p><p class="dim">I’ll inspect the work item and its dependencies.</p></div><div class="editor"><strong>›</strong> Ask anything, or continue the session…</div></div><p class="note">Selected. The restrained replacement row yields entirely to Pi’s native working indicator.</p></section>
+	<section class="variant v-b" data-variant="b"><div class="label">B · Lifecycle ledger</div><div class="v-b state-ready"><aside class="ledger"><h2>Session lifecycle</h2><div class="step" data-step="ready"><span class="dot"></span>Ready</div><div class="step" data-step="running"><span class="dot"></span>Running</div><div class="step" data-step="needs-input"><span class="dot"></span>Needs input</div><div class="step" data-step="completed"><span class="dot"></span>Completed</div><div class="step" data-step="failed"><span class="dot"></span>Failed</div><div class="step" data-step="interrupted"><span class="dot"></span>Interrupted</div></aside><div class="terminal"><div class="widget"><strong></strong></div><div class="transcript"><p><span class="prompt">›</span> Review PI-6 and prepare a plan.</p><p class="dim">The lifecycle history competes with the transcript.</p></div><div class="editor"><strong>›</strong> Ask anything, or continue the session…</div></div></div><p class="note">Rejected. The state machine is visible, but it does not fit a minimal one-line widget.</p></section>
+	<section class="variant v-c" data-variant="c"><div class="label">C · Symbol-forward strip</div><div class="terminal state-ready"><div class="widget"><span class="symbol"></span><strong></strong></div><div class="transcript"><p><span class="prompt">›</span> Review PI-6 and prepare a plan.</p><p class="dim">The state draws attention before the transcript.</p></div><div class="editor"><strong>›</strong> Ask anything, or continue the session…</div></div><p class="note">Rejected. Symbols make ordinary Ready and Completed states unnecessarily prominent.</p></section>
 </main>
-
 <nav class="switcher" aria-label="Prototype variants"><button id="previous" aria-label="Previous variant">‹</button><output id="variant-name"></output><button id="next" aria-label="Next variant">›</button></nav>
 <script>
-const variants = [
-	{ key: "a", name: "Quiet status line" },
-	{ key: "b", name: "Lifecycle ledger" },
-	{ key: "c", name: "Symbol-forward strip" },
-];
-const details = {
-	ready: { label: "Ready", prefix: "", message: "Waiting for the next instruction", symbol: "·", detail: "editor available" },
-	running: { label: "Running", prefix: "▶", message: "", symbol: "▶", detail: "Pi working indicator" },
-	"needs-input": { label: "Needs input", prefix: "??", message: "A decision is required to continue", symbol: "?", detail: "input required" },
-	completed: { label: "Completed", prefix: "", message: "The last run completed", symbol: "✓", detail: "last run" },
-	failed: { label: "Failed", prefix: "!!", message: "The run ended with an agent failure", symbol: "!", detail: "agent failure" },
-	interrupted: { label: "Interrupted", prefix: "!!", message: "The run was interrupted", symbol: "×", detail: "interrupted" },
-};
+const variants = [{ key: "a", name: "Quiet status line" }, { key: "b", name: "Lifecycle ledger" }, { key: "c", name: "Symbol-forward strip" }];
+const details = { ready: { label: "Ready", symbol: "·" }, running: { label: "Running", symbol: "▶" }, "needs-input": { label: "Needs input", symbol: "?" }, completed: { label: "Completed", symbol: "✓" }, failed: { label: "Failed", symbol: "!" }, interrupted: { label: "Interrupted", symbol: "×" } };
 const params = new URLSearchParams(location.search);
 let variant = variants.some(({ key }) => key === params.get("variant")) ? params.get("variant") : "a";
 let state = Object.hasOwn(details, params.get("state")) ? params.get("state") : "ready";
@@ -142,8 +94,7 @@ function render() {
 	const current = details[state];
 	document.querySelectorAll(".variant").forEach((element) => element.classList.toggle("active", element.dataset.variant === variant));
 	document.querySelectorAll(".terminal, .v-b").forEach((element) => { element.className = element.className.replace(/state-[\w-]+/g, "").trim() + " state-" + state; });
-	document.querySelectorAll(".title").forEach((element) => { element.textContent = [current.prefix, "PI-6 presentation", "pi-extensions", "pi"].filter(Boolean).join(" · "); });
-	document.querySelectorAll(".widget").forEach((element) => { element.classList.toggle("visible", state !== "running"); element.querySelector("strong").textContent = current.label; const secondary = element.querySelector("span:last-child, small"); if (secondary) secondary.textContent = current.message || current.detail; const symbol = element.querySelector(".symbol"); if (symbol) symbol.textContent = current.symbol; });
+	document.querySelectorAll(".widget").forEach((element) => { element.classList.toggle("visible", state !== "running"); element.querySelector("strong").textContent = current.label; const symbol = element.querySelector(".symbol"); if (symbol) symbol.textContent = current.symbol; });
 	document.querySelectorAll(".step").forEach((element) => element.classList.toggle("active", element.dataset.step === state));
 	document.querySelectorAll("[data-state]").forEach((element) => element.classList.toggle("active", element.dataset.state === state));
 	document.querySelector("#variant-name").textContent = `${variant.toUpperCase()} · ${variants.find((item) => item.key === variant).name}`;
