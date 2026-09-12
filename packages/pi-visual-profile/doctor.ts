@@ -1,5 +1,18 @@
 import type { VisualProfileConfig } from "./config.ts";
 
+export interface McpPresentationResult {
+	supported: boolean;
+	accepted: boolean;
+	owner?: string;
+}
+
+export function describeMcpPresentation(active: boolean, result: McpPresentationResult | undefined): string {
+	if (!result) return "adapter unavailable";
+	if (active && result.accepted) return "profile boxed rendering active";
+	if (!active && (result.accepted || result.owner === undefined)) return "adapter native rendering";
+	return `owned by ${result.owner ?? "another extension"}`;
+}
+
 export interface DoctorReport {
 	scope: string;
 	config: VisualProfileConfig;
@@ -7,6 +20,7 @@ export interface DoctorReport {
 	lightThemeAvailable: boolean;
 	globalPath: string;
 	projectPath?: string;
+	mcpPresentation: string;
 }
 
 export function formatDoctor(report: DoctorReport): string {
@@ -30,7 +44,7 @@ export function formatDoctor(report: DoctorReport): string {
 		"",
 		"Compatibility",
 		"  footer: never claimed",
-		"  visible surfaces: none yet, enabling only stores configuration",
+		`  MCP presentation: ${report.mcpPresentation}`,
 		"  unsupported surfaces: native Pi rendering",
 		"",
 		"Configuration files",

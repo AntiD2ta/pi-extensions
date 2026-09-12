@@ -27,6 +27,7 @@ test("the profile never claims the footer, enabled or not", async (t) => {
 	let sessionStart: SessionStartHandler | undefined;
 	let command: CommandHandler | undefined;
 	const pi = {
+		events: { emit: () => undefined },
 		on(event: string, handler: SessionStartHandler) {
 			if (event === "session_start") sessionStart = handler;
 		},
@@ -61,5 +62,5 @@ test("the profile never claims the footer, enabled or not", async (t) => {
 		"Visual profile disabled globally.",
 	]);
 	assert.match(notifications[enabledDoctor] ?? "", /\n  footer: never claimed\n/);
-	assert.match(notifications[enabledDoctor] ?? "", /\n  visible surfaces: none yet, enabling only stores configuration\n/);
+	assert.match(notifications[enabledDoctor] ?? "", /\n  MCP presentation: adapter unavailable\n/);
 });

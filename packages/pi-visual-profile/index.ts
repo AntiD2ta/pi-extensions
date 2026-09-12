@@ -1,10 +1,24 @@
 import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
-import { formatDoctor } from "./doctor.ts";
+import { type GlyphMode, type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
+import { describeMcpPresentation, formatDoctor } from "./doctor.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
 const PROFILE_THEME_LIGHT = "pi-visual-profile-light";
+const MCP_PRESENTATION_EVENT = "pi-mcp-adapter:presentation:v1";
+
+interface McpPresentationRequest {
+	version: 1;
+	owner: string;
+	action: "acquire" | "update" | "release" | "query";
+	profile?: {
+		style: "boxed";
+		borderStyle: VisualProfileConfig["borderStyle"];
+		glyphMode: GlyphMode;
+		padding: VisualProfileConfig["padding"];
+	};
+	result?: { supported: boolean; accepted: boolean; owner?: string };
+}
 
 function configPaths(cwd: string): { global: string; project: string } {
 	return {
@@ -34,7 +48,7 @@ function parseLocal(args: string): { local: boolean; values: string[] } {
 	return { local: values.includes("--local"), values: values.filter((value) => value !== "--local") };
 }
 
-function doctor(ctx: ExtensionContext): string {
+function doctor(ctx: ExtensionContext, mcpPresentation: string): string {
 	const paths = configPaths(ctx.cwd);
 	const themes = new Set(ctx.ui.getAllThemes().map((theme) => theme.name));
 	const projectTrusted = ctx.isProjectTrusted();
@@ -45,10 +59,34 @@ function doctor(ctx: ExtensionContext): string {
 		lightThemeAvailable: themes.has(PROFILE_THEME_LIGHT),
 		globalPath: paths.global,
 		projectPath: projectTrusted ? paths.project : undefined,
+		mcpPresentation,
 	});
 }
 
 export default function (pi: ExtensionAPI) {
+	let mcpPresentation = "adapter unavailable";
+
+	function syncMcpPresentation(config: VisualProfileConfig): void {
+		const active = config.enabled;
+		const request: McpPresentationRequest = {
+			version: 1,
+			owner: "pi-visual-profile",
+			action: active ? "acquire" : "release",
+			...(active ? { profile: { style: "boxed", borderStyle: config.borderStyle, glyphMode: config.glyphMode, padding: config.padding } } : {}),
+		};
+		pi.events.emit(MCP_PRESENTATION_EVENT, request);
+		mcpPresentation = describeMcpPresentation(active, request.result);
+	}
+
+	pi.on("session_start", (_event, ctx) => {
+		syncMcpPresentation(effectiveConfig(ctx));
+	});
+
+	pi.on("session_shutdown", () => {
+		const request: McpPresentationRequest = { version: 1, owner: "pi-visual-profile", action: "release" };
+		pi.events.emit(MCP_PRESENTATION_EVENT, request);
+	});
+
 	pi.registerCommand("visual-profile", {
 		description: "Show or configure the opt-in visual profile.",
 		handler: async (args, ctx) => {
@@ -59,7 +97,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (command === "doctor") {
-				ctx.ui.notify(doctor(ctx), "info");
+				ctx.ui.notify(doctor(ctx, mcpPresentation), "info");
 				return;
 			}
 			if (command === "enable" || command === "disable" || command === "inherit") {
@@ -69,11 +107,13 @@ export default function (pi: ExtensionAPI) {
 						? { enabled: false }
 						: { themeMode: "inherit" as const };
 				if (!save(ctx, patch, local)) return;
+				syncMcpPresentation(effectiveConfig(ctx));
 				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
 			if (command === "glyph" && (value === "unicode" || value === "nerd-font" || value === "ascii")) {
 				if (!save(ctx, { glyphMode: value }, local)) return;
+				syncMcpPresentation(effectiveConfig(ctx));
 				ctx.ui.notify(`Glyph mode set to ${value}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
