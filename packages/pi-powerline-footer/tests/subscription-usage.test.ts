@@ -274,6 +274,36 @@ test("tracker refetches when the provider changes", { timeout: 2_000 }, async ()
   assert.deepEqual(providers, ["anthropic", "openai-codex"]);
 });
 
+test("tracker drops a report that arrives after the provider changed", { timeout: 2_000 }, async () => {
+  const updates = updateWaiter();
+  const pending = new Map<string, (value: UsageReportLike) => void>();
+  let calls = 0;
+  const tracker = new SubscriptionUsageTracker({
+    source: {
+      getUsageReport: (provider) => {
+        calls++;
+        return new Promise<UsageReportLike>((resolve) => pending.set(provider, resolve));
+      },
+    },
+    onUpdate: updates.onUpdate,
+  });
+
+  tracker.snapshot("anthropic", FIVE_HOURS);
+  tracker.snapshot("openai-codex", FIVE_HOURS);
+  assert.equal(calls, 2);
+
+  const updated = updates.next();
+  pending.get("openai-codex")?.(report([{ duration: FIVE_HOURS, used: 0.7, resetsAt: 8_000 }]));
+  await updated;
+  assert.deepEqual(tracker.snapshot("openai-codex", FIVE_HOURS), { used: 0.7, resetsAt: 8_000 });
+
+  pending.get("anthropic")?.(report([{ duration: FIVE_HOURS, used: 0.3, resetsAt: 8_000 }]));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(tracker.snapshot("openai-codex", FIVE_HOURS), { used: 0.7, resetsAt: 8_000 });
+  assert.equal(calls, 2);
+});
+
 test("tracker picks up a report that succeeds after an earlier timeout", { timeout: 2_000 }, async () => {
   const updates = updateWaiter();
   let now = 1_000;
@@ -339,6 +369,15 @@ test("usage window hours and format are configurable, invalid values ignored", (
     mergeSegmentOptions({ usage: { windowHours: 5 } }, { usage: { format: "percent" } }).usage,
     { windowHours: 5, format: "percent" },
   );
+});
+
+test("usage segment drops the countdown once the window has reset", () => {
+  const ctx = createSegmentContext({ used: 0.25, resetsAt: Date.now() - 60_000 });
+
+  const rendered = renderSegment("usage", ctx);
+
+  assert.equal(rendered.visible, true);
+  assert.equal(stripAnsi(rendered.content), "sub 25%");
 });
 
 test("usage segment drops the countdown in percent format", () => {

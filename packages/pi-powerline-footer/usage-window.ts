@@ -53,6 +53,7 @@ export class SubscriptionUsageTracker {
   private readonly now: () => number;
   private cache: { provider: string; report: UsageReportLike | undefined; fetchedAt: number } | null = null;
   private inFlightProvider: string | null = null;
+  private refreshGeneration = 0;
 
   constructor(options: SubscriptionUsageTrackerOptions) {
     this.source = options.source;
@@ -81,6 +82,7 @@ export class SubscriptionUsageTracker {
   private refresh(provider: string): void {
     if (this.inFlightProvider === provider) return;
     this.inFlightProvider = provider;
+    const generation = ++this.refreshGeneration;
 
     void (async () => {
       // A failed, unavailable, or slow report hides the segment instead of surfacing
@@ -98,6 +100,9 @@ export class SubscriptionUsageTracker {
       } finally {
         clearTimeout(expiry);
       }
+      // A report the session has already moved past is dropped, so a late answer for an
+      // earlier provider cannot replace the current one.
+      if (generation !== this.refreshGeneration) return;
       this.inFlightProvider = null;
       this.cache = { provider, report, fetchedAt: this.now() };
       this.onUpdate();

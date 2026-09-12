@@ -2805,7 +2805,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
    * whose model registry cannot report usage.
    */
   function readSubscriptionUsageWindow(
-    ctx: any,
+    ctx: { modelRegistry?: unknown; model?: { provider?: string } },
     allSegmentIds: StatusLineSegmentId[],
     options: { windowHours?: number } | undefined,
     usingSubscription: boolean,
