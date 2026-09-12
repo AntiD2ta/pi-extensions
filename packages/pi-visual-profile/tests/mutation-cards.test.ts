@@ -18,20 +18,21 @@ const theme = {
 test("edit profile renders the native preview as one semantic card", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pi-mutation-card-"));
 	await writeFile(join(directory, "notes.txt"), "before\ncontext\n");
-	let component!: ToolExecutionComponent;
-	let resolvePreview!: () => void;
-	const previewReady = new Promise<void>((resolve) => { resolvePreview = resolve; });
-	component = new ToolExecutionComponent(
+	const component = new ToolExecutionComponent(
 		"edit",
 		"edit-preview",
 		{ path: "notes.txt", edits: [{ oldText: "before", newText: "after" }] },
 		{},
 		mutationRendererProfile().tools.edit as never,
-		{ requestRender() { if (component.render(80).join("\n").includes("+1 -1")) resolvePreview(); } } as TUI,
+		{ requestRender() {} } as TUI,
 		directory,
 	);
 	component.setArgsComplete();
-	await previewReady;
+	component.updateResult({
+		content: [{ type: "text", text: "" }],
+		details: { diff: "-1 before\n+1 after" },
+		isError: false,
+	});
 	const output = component.render(80).join("\n");
 	assert.match(output, /edit notes\.txt/);
 	assert.match(output, /\+1 -1/);
