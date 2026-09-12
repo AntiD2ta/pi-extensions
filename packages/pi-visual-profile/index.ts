@@ -2,6 +2,7 @@ import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext 
 import { join } from "node:path";
 import { type GlyphMode, type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
 import { describeMcpPresentation, formatDoctor } from "./doctor.ts";
+import { createProfileSurfaces } from "./surfaces.ts";
 import { createToolRendererProfile, type ToolRendererProfile } from "./tool-cards.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
@@ -53,11 +54,20 @@ function doctor(ctx: ExtensionContext, mcpPresentation: string, toolRendererProf
 	const paths = configPaths(ctx.cwd);
 	const themes = new Set(ctx.ui.getAllThemes().map((theme) => theme.name));
 	const projectTrusted = ctx.isProjectTrusted();
+	const ui = ctx.ui as typeof ctx.ui & {
+		setMarkdownCodeFenceChromeOverride?: unknown;
+		setEditorComponentOverride?: unknown;
+		setThemeOverride?: unknown;
+	};
+	const nativeSurfaceAvailable = ctx.mode === "tui";
 	return formatDoctor({
 		scope: projectTrusted ? "project overrides global" : "global",
 		config: effectiveConfig(ctx),
 		darkThemeAvailable: themes.has(PROFILE_THEME_DARK),
 		lightThemeAvailable: themes.has(PROFILE_THEME_LIGHT),
+		nativeFenceChromeAvailable: nativeSurfaceAvailable && typeof ui.setMarkdownCodeFenceChromeOverride === "function",
+		nativeEditorPaddingAvailable: nativeSurfaceAvailable && typeof ui.setEditorComponentOverride === "function",
+		nativeThemeOverrideAvailable: nativeSurfaceAvailable && typeof ui.setThemeOverride === "function",
 		globalPath: paths.global,
 		projectPath: projectTrusted ? paths.project : undefined,
 		mcpPresentation,
@@ -72,7 +82,9 @@ type ProfileCapableExtensionAPI = ExtensionAPI & {
 export default function (pi: ExtensionAPI) {
 	let mcpPresentation = "adapter unavailable";
 	let releaseToolRendererProfile: (() => void) | undefined;
+	let surfaceContext: ExtensionContext | undefined;
 	const profileAPI = pi as ProfileCapableExtensionAPI;
+	const surfaces = createProfileSurfaces();
 
 	function syncMcpPresentation(config: VisualProfileConfig): void {
 		const active = config.enabled;
@@ -100,6 +112,8 @@ export default function (pi: ExtensionAPI) {
 		const config = effectiveConfig(ctx);
 		syncMcpPresentation(config);
 		syncToolRendererProfile(ctx, config);
+		surfaces.apply(ctx, config);
+		surfaceContext = ctx;
 	}
 
 	pi.on("session_start", (_event, ctx) => {
@@ -109,6 +123,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		releaseToolRendererProfile?.();
 		releaseToolRendererProfile = undefined;
+		if (surfaceContext) surfaces.release(surfaceContext);
+		surfaceContext = undefined;
 		const request: McpPresentationRequest = { version: 1, owner: "pi-visual-profile", action: "release" };
 		pi.events.emit(MCP_PRESENTATION_EVENT, request);
 	});
@@ -127,11 +143,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (command === "enable" || command === "disable" || command === "inherit") {
-				const patch = command === "enable"
-					? { enabled: true }
-					: command === "disable"
-						? { enabled: false }
-						: { themeMode: "inherit" as const };
+				const patch = command === "enable" ? { enabled: true } : command === "disable" ? { enabled: false } : { themeMode: "inherit" as const };
 				if (!save(ctx, patch, local)) return;
 				syncPresentation(ctx);
 				const unavailable = command === "enable" && !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
