@@ -39,6 +39,7 @@ export function formatDoctor(report: DoctorReport): string {
 		`  border: ${config.borderStyle}`,
 		`  padding: ${config.padding}`,
 		`  tool cards: ${config.toolCardStyle}`,
+		`  diff layout: ${config.diffLayout}`,
 		"",
 		"Themes",
 		`  pi-visual-profile-dark: ${report.darkThemeAvailable ? "available" : "unavailable"}`,

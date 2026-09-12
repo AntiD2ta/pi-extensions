@@ -2,6 +2,7 @@ import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext 
 import { join } from "node:path";
 import { type GlyphMode, type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
 import { describeMcpPresentation, formatDoctor } from "./doctor.ts";
+import { mutationRendererProfile } from "./mutation-cards.ts";
 import { createToolRendererProfile, type ToolRendererProfile } from "./tool-cards.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
@@ -91,7 +92,7 @@ export default function (pi: ExtensionAPI) {
 		releaseToolRendererProfile = undefined;
 		if (config.enabled && ctx.mode === "tui" && profileAPI.activateToolRendererProfile) {
 			releaseToolRendererProfile = profileAPI.activateToolRendererProfile(
-				createToolRendererProfile(config.toolCardStyle, ctx.ui.theme),
+				createToolRendererProfile(config.toolCardStyle, ctx.ui.theme, mutationRendererProfile(config.diffLayout)),
 			);
 		}
 	}
@@ -151,7 +152,13 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Tool cards set to ${value}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
-			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|doctor] [--local]", "error");
+			if (command === "diff" && (value === "stacked" || value === "side-by-side")) {
+				if (!save(ctx, { diffLayout: value }, local)) return;
+				syncPresentation(ctx);
+				ctx.ui.notify(`Diff layout set to ${value}${local ? " locally" : " globally"}.`, "info");
+				return;
+			}
+			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|diff <stacked|side-by-side>|doctor] [--local]", "error");
 		},
 	});
 }

@@ -5,6 +5,7 @@ export type GlyphMode = "unicode" | "nerd-font" | "ascii";
 export type BorderStyle = "rounded" | "sharp" | "none";
 export type ThemeMode = "profile" | "inherit";
 export type ToolCardStyle = "boxed" | "minimal";
+export type DiffLayout = "stacked" | "side-by-side";
 
 export interface VisualProfileConfig {
 	enabled: boolean;
@@ -13,6 +14,7 @@ export interface VisualProfileConfig {
 	borderStyle: BorderStyle;
 	padding: number;
 	toolCardStyle: ToolCardStyle;
+	diffLayout: DiffLayout;
 }
 
 export const DEFAULT_CONFIG: VisualProfileConfig = {
@@ -22,6 +24,7 @@ export const DEFAULT_CONFIG: VisualProfileConfig = {
 	borderStyle: "rounded",
 	padding: 1,
 	toolCardStyle: "boxed",
+	diffLayout: "stacked",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,6 +47,7 @@ function parseConfigPatch(value: unknown): Partial<VisualProfileConfig> {
 			? { padding: value.padding }
 			: {}),
 		...(isOneOf(value.toolCardStyle, ["boxed", "minimal"]) ? { toolCardStyle: value.toolCardStyle } : {}),
+		...(isOneOf(value.diffLayout, ["stacked", "side-by-side"]) ? { diffLayout: value.diffLayout } : {}),
 	};
 }
 

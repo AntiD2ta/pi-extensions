@@ -1,3 +1,4 @@
+import type { ToolRendererProfile as PiToolRendererProfile } from "@earendil-works/pi-coding-agent";
 import {
 	Container,
 	Text,
@@ -22,7 +23,7 @@ export interface ToolRendererFrameContext {
 	expandKeyText: string;
 }
 
-export interface ToolRendererProfile {
+export interface ToolRendererProfile extends PiToolRendererProfile {
 	frame(context: ToolRendererFrameContext): Component;
 }
 
@@ -183,8 +184,9 @@ function minimalFrame(context: ToolRendererFrameContext, theme: ToolCardTheme): 
 	return frame;
 }
 
-export function createToolRendererProfile(style: ToolCardStyle, theme: ToolCardTheme): ToolRendererProfile {
+export function createToolRendererProfile(style: ToolCardStyle, theme: ToolCardTheme, mutationProfile: PiToolRendererProfile = { tools: {} }): ToolRendererProfile {
 	return {
+		...mutationProfile,
 		frame: (context) => style === "boxed" ? new BoxedFrame(context, theme) : minimalFrame(context, theme),
 	};
 }
