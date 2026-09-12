@@ -1,11 +1,12 @@
 # pi-visual-profile
 
 Opt-in visual-profile extension shell for Pi. Its single package entry is
-`packages/pi-visual-profile/index.ts`: profile commands, typed configuration, and themes.
+`packages/pi-visual-profile/index.ts`: profile commands, typed configuration,
+tool-card framing, and themes.
 
 The footer and the queue belong to `pi-powerline-footer`, which owns both surfaces under ADR-0005. This package never renders a footer and never stores queue state.
 
-Enabling the profile currently only stores configuration. The surfaces it will style, tool cards, chat surfaces, and code-fence chrome, are not implemented yet, so `/visual-profile enable` changes nothing on screen. The bundled themes are selectable through `/settings` whether the profile is enabled or not.
+When enabled, the profile acquires boxed MCP presentation from the bundled adapter and frames Pi's native built-in tool cards without replacing their call or result renderers. The bundled themes are selectable through `/settings` whether the profile is enabled or not.
 
 ## Visual trial
 
@@ -17,11 +18,17 @@ HOME="$trial_home" pi install "$PWD"
 HOME="$trial_home" pi --use-theme pi-visual-profile-dark
 ```
 
+The checkout includes the forked MCP adapter. In the disposable Pi session, use `/mcp setup` to create a test MCP configuration, then reload Pi before the visual check. The adapter retains its normal configuration discovery and setup flow.
+
 At the Pi prompt, run these commands in order:
 
 ```text
+/mcp setup
+/reload
 /visual-profile doctor
 /visual-profile enable
+/visual-profile cards boxed
+/visual-profile cards minimal
 /visual-profile glyph unicode
 /visual-profile glyph ascii
 /visual-profile glyph nerd-font
@@ -40,10 +47,12 @@ For a trusted project override, start Pi in that project and run:
 ## Sign-off checks
 
 1. Select both `pi-visual-profile-dark` and `pi-visual-profile-light` through `/settings`; confirm readable text, borders, user blocks, tool states, Markdown, and syntax colors.
-2. Confirm `/visual-profile enable`, `disable`, and `glyph` report the saved setting and leave the rendered UI unchanged, including the footer.
-3. With `pi-powerline-footer` also installed, confirm its footer renders identically before and after `/visual-profile enable`. Without it, confirm Pi's native footer renders unchanged.
-4. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, and that the profile claims no footer and has no visible surface yet.
-5. Restart Pi with the same `trial_home`; confirm the selected profile and glyph settings persist.
+2. Confirm `/visual-profile enable`, `disable`, and `glyph` leave the footer unchanged. With `pi-powerline-footer` installed, confirm its footer renders identically before and after profile commands. Without it, confirm Pi's native footer is unchanged.
+3. Compare `/visual-profile cards boxed` with `/visual-profile cards minimal`. Both retain Pi's native tool content; boxed adds the state-coloured frame.
+4. Confirm `/visual-profile doctor` reports the effective scope, configuration, theme availability, MCP presentation compatibility, and tool renderer profile capability.
+5. Restart Pi with the same `trial_home`; confirm the selected profile, glyph settings, and card style persist.
+6. Run one MCP call after setup. Confirm the adapter-owned card shows `MCP`, the server and operation, a textual status, bounded result text, and the configured border and glyph mode. Use Ctrl+O to compare collapsed and expanded output.
+7. Disable the profile, then repeat the MCP call. Confirm native adapter rendering returns while `/mcp setup` and configuration discovery remain available.
 
 ## Offline smoke model
 
