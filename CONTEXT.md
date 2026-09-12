@@ -20,6 +20,12 @@ _Avoid_: notification, banner
 An unresolved request for a user's free-text decision, created by the `request_user_input` tool. Its tool result records the request, and a later resolution entry records the next interactive-editor response.
 _Avoid_: prompt, modal, dialog
 
+## Skill invocation
+
+**Skill reference**:
+A literal `/skill:<name>` token in ordinary prompt text. Pi completes it but does not expand it; a skill invocation must begin the submitted input.
+_Avoid_: embedded command, inline command
+
 ## Subagents
 
 **Subagent role**:
