@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { computeEditsDiff, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
+import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { mutationRendererProfile, renderEditCard } from "../mutation-cards.ts";
 
@@ -77,7 +77,6 @@ test("settled edit details are not replaced by a late preview", async () => {
 		details: { diff: "-1 before\n+1 settled" },
 		isError: false,
 	});
-	await computeEditsDiff("notes.txt", [{ oldText: "before", newText: "preview" }], directory);
 	await new Promise<void>((resolve) => setImmediate(resolve));
 
 	assert.match(component.render(80).join("\n"), /\+ 1 settled/);
