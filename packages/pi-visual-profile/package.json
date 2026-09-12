@@ -3,10 +3,16 @@
   "version": "0.1.0",
   "description": "Opt-in visual profile extension shell for Pi",
   "type": "module",
+  "author": "AntiD2ta",
+  "license": "MIT",
   "files": [
     "*.ts",
     "themes/*.json",
+    "docs/**/*.md",
+    "examples/**/*.ts",
     "README.md",
+    "LICENSE",
+    "NOTICE",
     "tests/**/*.ts"
   ],
   "scripts": {
