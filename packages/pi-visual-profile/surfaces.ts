@@ -1,10 +1,26 @@
 import { CustomEditor, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type MarkdownCodeFenceChrome, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { GlyphMode, VisualProfileConfig } from "./config.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
 const PROFILE_THEME_LIGHT = "pi-visual-profile-light";
-type EditorFactory = Parameters<ExtensionContext["ui"]["setEditorComponentOverride"]>[1];
+
+type MarkdownCodeFenceChrome = {
+	header: (options: { language?: string; path?: string; width: number }) => string[];
+	body: (lines: string[]) => string[];
+	closing: () => string[];
+};
+type EditorFactory = (
+	tui: ConstructorParameters<typeof CustomEditor>[0],
+	theme: ConstructorParameters<typeof CustomEditor>[1],
+	keybindings: ConstructorParameters<typeof CustomEditor>[2],
+) => CustomEditor;
+type ProfileSurfaceUI = {
+	setMarkdownCodeFenceChromeOverride?: (owner: object, chrome: MarkdownCodeFenceChrome | undefined) => unknown;
+	setEditorComponentOverride?: (owner: object, factory: EditorFactory | undefined) => unknown;
+	setThemeOverride?: (owner: object, theme: string | undefined) => unknown;
+	getAllThemes?: () => Array<{ name: string }>;
+};
 
 function glyph(mode: GlyphMode, unicode: string, nerdFont: string, ascii: string): string {
 	if (mode === "ascii") return ascii;
@@ -36,12 +52,7 @@ export function createProfileSurfaces() {
 
 	function apply(ctx: ExtensionContext, config: VisualProfileConfig): void {
 		const enabled = config.enabled && ctx.mode === "tui";
-		const ui = ctx.ui as typeof ctx.ui & {
-			setMarkdownCodeFenceChromeOverride?: (owner: object, chrome: MarkdownCodeFenceChrome | undefined) => unknown;
-			setEditorComponentOverride?: (owner: object, factory: EditorFactory | undefined) => unknown;
-			setThemeOverride?: (owner: object, theme: string | undefined) => unknown;
-			getAllThemes?: () => Array<{ name: string }>;
-		};
+		const ui = ctx.ui as typeof ctx.ui & ProfileSurfaceUI;
 		const profileTheme = ctx.ui.theme.name?.toLowerCase().includes("light") ? PROFILE_THEME_LIGHT : PROFILE_THEME_DARK;
 		const wantsTheme = enabled && config.themeMode === "profile" && typeof ui.getAllThemes === "function" && ui.getAllThemes().some((theme) => theme.name === profileTheme);
 		if (typeof ui.setMarkdownCodeFenceChromeOverride === "function" && (enabled || ownsCodeFenceChrome)) {
@@ -66,5 +77,21 @@ export function createProfileSurfaces() {
 		}
 	}
 
-	return { apply };
+	function release(ctx: ExtensionContext): void {
+		const ui = ctx.ui as typeof ctx.ui & ProfileSurfaceUI;
+		if (ownsCodeFenceChrome && typeof ui.setMarkdownCodeFenceChromeOverride === "function") {
+			ui.setMarkdownCodeFenceChromeOverride(owner, undefined);
+			ownsCodeFenceChrome = false;
+		}
+		if (ownsEditor && typeof ui.setEditorComponentOverride === "function") {
+			ui.setEditorComponentOverride(owner, undefined);
+			ownsEditor = false;
+		}
+		if (ownsTheme && typeof ui.setThemeOverride === "function") {
+			ui.setThemeOverride(owner, undefined);
+			ownsTheme = false;
+		}
+	}
+
+	return { apply, release };
 }

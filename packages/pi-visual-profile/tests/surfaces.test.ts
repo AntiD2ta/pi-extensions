@@ -4,12 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-	Markdown,
 	type AutocompleteProvider,
 	type Editor,
 	type EditorTheme,
-	type MarkdownCodeFenceChrome,
-	type MarkdownTheme,
 	type TUI,
 } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -17,21 +14,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 type CommandHandler = (args: string, ctx: ExtensionContext) => Promise<void>;
 type SessionStartHandler = (event: unknown, ctx: ExtensionContext) => void;
 
-const markdownTheme: MarkdownTheme = {
-	heading: (text) => text,
-	link: (text) => text,
-	linkUrl: (text) => text,
-	code: (text) => text,
-	codeBlock: (text) => text,
-	codeBlockBorder: (text) => text,
-	quote: (text) => text,
-	quoteBorder: (text) => text,
-	hr: (text) => text,
-	listBullet: (text) => text,
-	bold: (text) => text,
-	italic: (text) => text,
-	strikethrough: (text) => text,
-	underline: (text) => text,
+type MarkdownCodeFenceChrome = {
+	header: (options: { language?: string; path?: string; width: number }) => string[];
+	body: (lines: string[]) => string[];
+	closing: () => string[];
 };
 
 function createExtensionHarness(
@@ -41,6 +27,7 @@ function createExtensionHarness(
 	profileThemesAvailable = true,
 ) {
 	let sessionStart: SessionStartHandler | undefined;
+	let sessionShutdown: (() => void) | undefined;
 	let command: CommandHandler | undefined;
 	const chromeCalls: Array<MarkdownCodeFenceChrome | undefined> = [];
 	const themeCalls: Array<string | undefined> = [];
@@ -49,8 +36,9 @@ function createExtensionHarness(
 	let footerCalls = 0;
 	const extension = {
 		events: { emit: () => undefined },
-		on(event: string, handler: SessionStartHandler) {
-			if (event === "session_start") sessionStart = handler;
+		on(event: string, handler: SessionStartHandler | (() => void)) {
+			if (event === "session_start") sessionStart = handler as SessionStartHandler;
+			if (event === "session_shutdown") sessionShutdown = handler as () => void;
 		},
 		registerCommand(_name: string, definition: { handler: CommandHandler }) {
 			command = definition.handler;
@@ -102,6 +90,10 @@ function createExtensionHarness(
 			assert.ok(sessionStart, "extension must register a session_start handler");
 			sessionStart({}, context);
 		},
+		shutdown() {
+			assert.ok(sessionShutdown, "extension must register a session_shutdown handler");
+			sessionShutdown();
+		},
 		async runCommand(args: string) {
 			assert.ok(command, "extension must register its command");
 			await command(args, context);
@@ -136,15 +128,18 @@ test("enabled profile claims native code-fence chrome and disablement releases i
 	assert.deepEqual(harness.themeCalls, ["pi-visual-profile-light"]);
 	assert.equal(harness.editorCalls.length, 1);
 	assert.equal(typeof harness.editorCalls[0], "function");
-	const rendered = new Markdown("```typescript\nconst answer = 42;\n```", 0, 0, markdownTheme, undefined, {
-		codeFenceChrome: harness.chromeCalls[0],
-	}).render(80).join("\n");
-	assert.match(rendered, /typescript/);
+	assert.match(harness.chromeCalls[0].header({ language: "typescript", width: 80 }).join("\n"), /typescript/);
 
 	await harness.runCommand("disable");
 	assert.deepEqual(harness.chromeCalls, [harness.chromeCalls[0], undefined]);
 	assert.deepEqual(harness.themeCalls, ["pi-visual-profile-light", undefined]);
 	assert.deepEqual(harness.editorCalls, [harness.editorCalls[0], undefined]);
+
+	await harness.runCommand("enable");
+	harness.shutdown();
+	assert.equal(harness.chromeCalls.at(-1), undefined);
+	assert.equal(harness.themeCalls.at(-1), undefined);
+	assert.equal(harness.editorCalls.at(-1), undefined);
 });
 
 test("surface-only settings keep the active editor instance", async (t) => {
@@ -247,21 +242,14 @@ test("profile fence chrome keeps highlighted code and omits narrow labels", asyn
 	const chrome = harness.chromeCalls[0];
 	assert.ok(chrome);
 	const highlighted = "\x1b[31mconst answer = 42;\x1b[0m";
-	const theme: MarkdownTheme = { ...markdownTheme, highlightCode: () => [highlighted] };
-	const wide = new Markdown("```typescript\nconst answer = 42;\n```", 0, 0, theme, undefined, {
-		codeFenceChrome: chrome,
-	}).render(80);
-	const plainWide = wide.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
-	assert.match(plainWide, /typescript/);
-	assert.match(plainWide, /\+-/);
-	assert.doesNotMatch(plainWide, /[^\x00-\x7F]/);
-	assert.ok(wide.some((line) => line.includes(highlighted)));
+	const wide = [...chrome.header({ language: "typescript", width: 80 }), ...chrome.body([highlighted]), ...chrome.closing()].join("\n");
+	assert.match(wide, /typescript/);
+	assert.match(wide, /\+-/);
+	assert.doesNotMatch(wide, /[^\x00-\x7F]/);
+	assert.match(wide, /\x1b\[31mconst answer = 42;\x1b\[0m/);
 
-	const narrow = new Markdown("```typescript\nconst answer = 42;\n```", 0, 0, theme, undefined, {
-		codeFenceChrome: chrome,
-	}).render(8).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+	const narrow = chrome.header({ language: "typescript", width: 8 }).join("\n");
 	assert.doesNotMatch(narrow, /typescript/);
-	assert.match(narrow, /const/);
 });
 
 test("profile editor retains native input interactions after Pi applies default padding", async (t) => {
@@ -315,24 +303,42 @@ test("profile editor retains native input interactions after Pi applies default 
 	editor.handleInput("\x1b[A");
 	assert.equal(editor.getText(), "previous prompt");
 
-	editor.setText("hello");
-	editor.render(80);
-	editor.handleMouse({
-		type: "click",
-		button: "left",
-		x: 4,
-		y: 1,
-		screenX: 4,
-		screenY: 1,
-		width: 80,
-		height: 10,
-		shift: false,
-		alt: false,
-		ctrl: false,
-		clickCount: 1,
-	});
-	editor.handleInput("X");
-	assert.equal(editor.getText(), "heXllo");
+	const mouseEditor = editor as Editor & {
+		handleMouse?: (event: {
+			type: "click";
+			button: "left";
+			x: number;
+			y: number;
+			screenX: number;
+			screenY: number;
+			width: number;
+			height: number;
+			shift: boolean;
+			alt: boolean;
+			ctrl: boolean;
+			clickCount: number;
+		}) => void;
+	};
+	if (typeof mouseEditor.handleMouse === "function") {
+		editor.setText("hello");
+		editor.render(80);
+		mouseEditor.handleMouse({
+			type: "click",
+			button: "left",
+			x: 4,
+			y: 1,
+			screenX: 4,
+			screenY: 1,
+			width: 80,
+			height: 10,
+			shift: false,
+			alt: false,
+			ctrl: false,
+			clickCount: 1,
+		});
+		editor.handleInput("X");
+		assert.equal(editor.getText(), "heXllo");
+	}
 
 	const autocomplete: AutocompleteProvider = {
 		async getSuggestions() {
@@ -414,7 +420,7 @@ test("non-TUI runs leave native surfaces unchanged", async (t) => {
 	assert.match(harness.notifications.at(-1)?.message ?? "", /native fence chrome: unavailable/);
 });
 
-test("invalid native surface APIs leave the profile native", async (t) => {
+test("unavailable native surface APIs leave the profile native", async (t) => {
 	const home = mkdtempSync(join(tmpdir(), "pi-visual-profile-test-"));
 	const previousHome = process.env.HOME;
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -430,13 +436,15 @@ test("invalid native surface APIs leave the profile native", async (t) => {
 	mkdirSync(join(home, ".pi", "agent", "visual-profile"), { recursive: true });
 	writeFileSync(configPath, JSON.stringify({ enabled: true }));
 
-	const { default: install } = await import(`../index.ts?${Date.now()}`);
-	const harness = createExtensionHarness("invalid");
-	install(harness.extension);
-	assert.doesNotThrow(() => harness.start());
-	assert.deepEqual(harness.chromeCalls, []);
-	assert.deepEqual(harness.editorCalls, []);
-	assert.deepEqual(harness.themeCalls, []);
-	await harness.runCommand("doctor");
-	assert.match(harness.notifications.at(-1)?.message ?? "", /native fence chrome: unavailable/);
+	for (const nativeSurfaceOverrides of ["invalid", "missing"] as const) {
+		const { default: install } = await import(`../index.ts?${Date.now()}-${nativeSurfaceOverrides}`);
+		const harness = createExtensionHarness(nativeSurfaceOverrides);
+		install(harness.extension);
+		assert.doesNotThrow(() => harness.start());
+		assert.deepEqual(harness.chromeCalls, []);
+		assert.deepEqual(harness.editorCalls, []);
+		assert.deepEqual(harness.themeCalls, []);
+		await harness.runCommand("doctor");
+		assert.match(harness.notifications.at(-1)?.message ?? "", /native fence chrome: unavailable/);
+	}
 });

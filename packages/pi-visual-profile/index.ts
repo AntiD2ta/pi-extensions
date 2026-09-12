@@ -82,6 +82,7 @@ type ProfileCapableExtensionAPI = ExtensionAPI & {
 export default function (pi: ExtensionAPI) {
 	let mcpPresentation = "adapter unavailable";
 	let releaseToolRendererProfile: (() => void) | undefined;
+	let surfaceContext: ExtensionContext | undefined;
 	const profileAPI = pi as ProfileCapableExtensionAPI;
 	const surfaces = createProfileSurfaces();
 
@@ -112,6 +113,7 @@ export default function (pi: ExtensionAPI) {
 		syncMcpPresentation(config);
 		syncToolRendererProfile(ctx, config);
 		surfaces.apply(ctx, config);
+		surfaceContext = ctx;
 	}
 
 	pi.on("session_start", (_event, ctx) => {
@@ -121,6 +123,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		releaseToolRendererProfile?.();
 		releaseToolRendererProfile = undefined;
+		if (surfaceContext) surfaces.release(surfaceContext);
+		surfaceContext = undefined;
 		const request: McpPresentationRequest = { version: 1, owner: "pi-visual-profile", action: "release" };
 		pi.events.emit(MCP_PRESENTATION_EVENT, request);
 	});
