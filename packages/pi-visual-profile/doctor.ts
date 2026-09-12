@@ -21,6 +21,7 @@ export interface DoctorReport {
 	globalPath: string;
 	projectPath?: string;
 	mcpPresentation: string;
+	toolRendererProfileSupported: boolean;
 }
 
 export function formatDoctor(report: DoctorReport): string {
@@ -37,6 +38,7 @@ export function formatDoctor(report: DoctorReport): string {
 		`  glyphs: ${config.glyphMode}`,
 		`  border: ${config.borderStyle}`,
 		`  padding: ${config.padding}`,
+		`  tool cards: ${config.toolCardStyle}`,
 		"",
 		"Themes",
 		`  pi-visual-profile-dark: ${report.darkThemeAvailable ? "available" : "unavailable"}`,
@@ -45,6 +47,7 @@ export function formatDoctor(report: DoctorReport): string {
 		"Compatibility",
 		"  footer: never claimed",
 		`  MCP presentation: ${report.mcpPresentation}`,
+		`  tool renderer profile: ${report.toolRendererProfileSupported ? "supported" : "unavailable"}`,
 		"  unsupported surfaces: native Pi rendering",
 		"",
 		"Configuration files",

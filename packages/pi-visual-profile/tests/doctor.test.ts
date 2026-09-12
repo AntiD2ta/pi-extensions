@@ -18,6 +18,7 @@ test("doctor renders configuration in readable sections", () => {
 		globalPath: "/tmp/agent/visual-profile/config.json",
 		projectPath: "/work/project/.pi/visual-profile/config.json",
 		mcpPresentation: "profile boxed rendering active",
+		toolRendererProfileSupported: false,
 	}), [
 		"Visual profile doctor",
 		"",
@@ -30,6 +31,7 @@ test("doctor renders configuration in readable sections", () => {
 		"  glyphs: ascii",
 		"  border: rounded",
 		"  padding: 1",
+		"  tool cards: boxed",
 		"",
 		"Themes",
 		"  pi-visual-profile-dark: available",
@@ -38,6 +40,7 @@ test("doctor renders configuration in readable sections", () => {
 		"Compatibility",
 		"  footer: never claimed",
 		"  MCP presentation: profile boxed rendering active",
+		"  tool renderer profile: unavailable",
 		"  unsupported surfaces: native Pi rendering",
 		"",
 		"Configuration files",

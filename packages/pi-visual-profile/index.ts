@@ -2,6 +2,7 @@ import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext 
 import { join } from "node:path";
 import { type GlyphMode, type VisualProfileConfig, loadConfig, saveConfig } from "./config.ts";
 import { describeMcpPresentation, formatDoctor } from "./doctor.ts";
+import { createToolRendererProfile, type ToolRendererProfile } from "./tool-cards.ts";
 
 const PROFILE_THEME_DARK = "pi-visual-profile-dark";
 const PROFILE_THEME_LIGHT = "pi-visual-profile-light";
@@ -48,7 +49,7 @@ function parseLocal(args: string): { local: boolean; values: string[] } {
 	return { local: values.includes("--local"), values: values.filter((value) => value !== "--local") };
 }
 
-function doctor(ctx: ExtensionContext, mcpPresentation: string): string {
+function doctor(ctx: ExtensionContext, mcpPresentation: string, toolRendererProfileSupported: boolean): string {
 	const paths = configPaths(ctx.cwd);
 	const themes = new Set(ctx.ui.getAllThemes().map((theme) => theme.name));
 	const projectTrusted = ctx.isProjectTrusted();
@@ -60,11 +61,18 @@ function doctor(ctx: ExtensionContext, mcpPresentation: string): string {
 		globalPath: paths.global,
 		projectPath: projectTrusted ? paths.project : undefined,
 		mcpPresentation,
+		toolRendererProfileSupported,
 	});
 }
 
+type ProfileCapableExtensionAPI = ExtensionAPI & {
+	activateToolRendererProfile?: (profile: ToolRendererProfile) => () => void;
+};
+
 export default function (pi: ExtensionAPI) {
 	let mcpPresentation = "adapter unavailable";
+	let releaseToolRendererProfile: (() => void) | undefined;
+	const profileAPI = pi as ProfileCapableExtensionAPI;
 
 	function syncMcpPresentation(config: VisualProfileConfig): void {
 		const active = config.enabled;
@@ -78,11 +86,29 @@ export default function (pi: ExtensionAPI) {
 		mcpPresentation = describeMcpPresentation(active, request.result);
 	}
 
+	function syncToolRendererProfile(ctx: ExtensionContext, config: VisualProfileConfig): void {
+		releaseToolRendererProfile?.();
+		releaseToolRendererProfile = undefined;
+		if (config.enabled && ctx.mode === "tui" && profileAPI.activateToolRendererProfile) {
+			releaseToolRendererProfile = profileAPI.activateToolRendererProfile(
+				createToolRendererProfile(config.toolCardStyle, ctx.ui.theme),
+			);
+		}
+	}
+
+	function syncPresentation(ctx: ExtensionContext): void {
+		const config = effectiveConfig(ctx);
+		syncMcpPresentation(config);
+		syncToolRendererProfile(ctx, config);
+	}
+
 	pi.on("session_start", (_event, ctx) => {
-		syncMcpPresentation(effectiveConfig(ctx));
+		syncPresentation(ctx);
 	});
 
 	pi.on("session_shutdown", () => {
+		releaseToolRendererProfile?.();
+		releaseToolRendererProfile = undefined;
 		const request: McpPresentationRequest = { version: 1, owner: "pi-visual-profile", action: "release" };
 		pi.events.emit(MCP_PRESENTATION_EVENT, request);
 	});
@@ -97,7 +123,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (command === "doctor") {
-				ctx.ui.notify(doctor(ctx, mcpPresentation), "info");
+				ctx.ui.notify(doctor(ctx, mcpPresentation, Boolean(profileAPI.activateToolRendererProfile)), "info");
 				return;
 			}
 			if (command === "enable" || command === "disable" || command === "inherit") {
@@ -107,17 +133,25 @@ export default function (pi: ExtensionAPI) {
 						? { enabled: false }
 						: { themeMode: "inherit" as const };
 				if (!save(ctx, patch, local)) return;
-				syncMcpPresentation(effectiveConfig(ctx));
-				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.`, "info");
+				syncPresentation(ctx);
+				const unavailable = command === "enable" && !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
+				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
 			if (command === "glyph" && (value === "unicode" || value === "nerd-font" || value === "ascii")) {
 				if (!save(ctx, { glyphMode: value }, local)) return;
-				syncMcpPresentation(effectiveConfig(ctx));
+				syncPresentation(ctx);
 				ctx.ui.notify(`Glyph mode set to ${value}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
-			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|doctor] [--local]", "error");
+			if (command === "cards" && (value === "boxed" || value === "minimal")) {
+				if (!save(ctx, { toolCardStyle: value }, local)) return;
+				syncPresentation(ctx);
+				const unavailable = !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
+				ctx.ui.notify(`Tool cards set to ${value}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
+				return;
+			}
+			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|doctor] [--local]", "error");
 		},
 	});
 }
