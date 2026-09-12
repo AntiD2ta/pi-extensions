@@ -5,12 +5,8 @@ This glossary defines terms used by the maintained personal Pi extensions in thi
 ## Agent status
 
 **Agent state**:
-The externally visible lifecycle state of an agent session. The input protocol owns its `Needs input` state; presentation maps all states to widgets and terminal titles.
+The externally visible lifecycle state of an agent session. The input protocol owns its `Needs input` state; presentation maps all states to the status widget.
 _Avoid_: mode, phase
-
-**Session identity**:
-A terminal-title label that prefers Pi’s explicit session name, otherwise a normalized preview of the first user message. It never changes session metadata.
-_Avoid_: session title, generated name
 
 **Status widget**:
 A replace-in-place, one-line display above Pi’s editor that names the current non-running agent state. It is absent while the agent is Running.
