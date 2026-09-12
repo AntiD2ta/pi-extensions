@@ -43,6 +43,7 @@ test("the profile never claims the footer, enabled or not", async (t) => {
 			setFooter: () => footerCalls.push("setFooter"),
 			notify: (message: string) => notifications.push(message),
 			getAllThemes: () => [],
+			theme: {},
 		},
 	} as unknown as ExtensionContext;
 
