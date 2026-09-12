@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Subscription usage segment** — Added the opt-in `usage` segment, which shows one finite subscription usage window (`powerline.usage.windowHours`, default 5) as spent percentage plus an hourglass and the time left until it resets. It reads Pi's provider-normalized usage reports, never credentials, and hides itself on ineligible accounts and on Pi builds that cannot report usage.
+
 ### Changed
 - **Editor stash shortcut.** Changed the stash shortcut from `Alt+S` to `Cmd+B` and removed the retired sharp-S compatibility setting.
 - **Upstream sync.** Updated the source copy to `v0.17.1`.

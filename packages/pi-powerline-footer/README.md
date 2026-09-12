@@ -230,6 +230,8 @@ Segment display formats (opt-in; defaults match the historical rendering):
 |---|---|---|---|
 | `"context": { "format" }` | `"full"` / `"percent"` | `"full"` | `"percent"` shows a bare rounded `83%` (threshold-colored, no icon) instead of `12k/200k (6.2%)` |
 | `"cache_read": { "format" }` | `"tokens"` / `"percent"` / `"both"` | `"tokens"` | `"percent"` shows the cache hit rate `cacheRead / (input + cacheRead)` instead of the raw token count; `"both"` shows raw tokens plus the hit rate, e.g. `cache in: 12k (80%)` |
+| `"usage": { "format" }` | `"full"` / `"percent"` | `"full"` | `"percent"` drops the reset countdown, showing `sub 25%` instead of `sub 25% ⧗ 1h12m` |
+| `"usage": { "windowHours" }` | any positive number | `5` | Which subscription usage window the `usage` segment shows |
 
 ```json
 {
@@ -483,7 +485,22 @@ The origin remote is detected (SSH or HTTPS) and mapped to an icon: GitHub (), G
 
 ## Segments
 
-`model` · `thinking` · `shell_mode` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
+`model` · `thinking` · `shell_mode` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `usage` · `context_pct` · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
+
+### Subscription usage
+
+The `usage` segment shows how much of one finite subscription usage window is spent, plus an hourglass and the time left until that window resets, e.g. `sub 25% ⧗ 1h12m`. The countdown disappears once the window has reset. No preset includes it; add it through `layout`:
+
+```json
+{
+  "powerline": {
+    "layout": { "right": ["context_pct", "cost", "usage"] },
+    "usage": { "windowHours": 5 }
+  }
+}
+```
+
+The window comes from Pi's provider-normalized usage reports, which the extension only reads on a subscription (OAuth) account and only while the segment is laid out. The extension never touches credentials. The segment stays hidden on enterprise, unlimited, API-key, and usage-credit accounts, on providers that report no usage, when the configured window is not among the reported ones, and when a report is unavailable, slow, or failing. It is also hidden on Pi builds whose model registry cannot report usage, so the extension still loads there.
 
 ## Separators
 

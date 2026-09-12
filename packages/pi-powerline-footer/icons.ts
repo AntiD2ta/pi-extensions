@@ -21,6 +21,7 @@ export interface IconSet {
   session: string;
   auto: string;
   warning: string;
+  hourglass: string;
 }
 
 // Separator characters
@@ -74,6 +75,7 @@ export const NERD_ICONS: IconSet = {
   session: "\uF550",    // nf-md-identifier (session id)
   auto: "\u{F0068}",    // nf-md-lightning_bolt (auto-compact)
   warning: "\uF071",    // nf-fa-warning
+  hourglass: "\uF252",  // nf-fa-hourglass_half (time until a usage window resets)
 };
 
 // ASCII/Unicode fallback icons (matching oh-my-pi)
@@ -98,6 +100,7 @@ export const ASCII_ICONS: IconSet = {
   session: "id",
   auto: "AC",
   warning: "!",
+  hourglass: "⧗",
 };
 
 type PartialIconSet = Partial<IconSet>;

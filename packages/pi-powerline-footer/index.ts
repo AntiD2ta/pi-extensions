@@ -9,7 +9,7 @@ import { CURSOR_MARKER, isKeyRelease, type AutocompleteProvider, type SelectItem
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-import type { ColorScheme, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorScheme, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle, SubscriptionUsageWindow } from "./types.ts";
 import type { PowerlineConfig } from "./powerline-config.ts";
 import { BashTranscriptStore } from "./bash-mode/transcript.ts";
 import {
@@ -31,6 +31,7 @@ import { renderSegment } from "./segments.ts";
 import { resolveThinkingLevelSelection } from "./thinking-level.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
+import { getUsageReportSource, SubscriptionUsageTracker } from "./usage-window.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
 import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
@@ -181,6 +182,7 @@ const STATUS_RENDER_DEBOUNCE_MS = 33;
 const CONTEXT_STATUS_RENDER_MS = 250;
 const EDITOR_STATUS_DEFER_MS = 150;
 const QUEUE_SUMMARY_CACHE_TTL_MS = 250;
+const DEFAULT_USAGE_WINDOW_HOURS = 5;
 const PROMPT_HISTORY_TRACKED = Symbol.for("powerlinePromptHistoryTracked");
 const PROMPT_HISTORY_STATE_KEY = Symbol.for("powerlinePromptHistoryState");
 
@@ -1247,6 +1249,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const sessionBranchCache = new SessionBranchCache();
   const tokenStatsCache = new SessionTokenStatsCache();
   const coreContextUsageCache = new CoreContextUsageCache();
+  // Absent on Pi revisions without ModelRegistry.getUsageReport, which hides the usage segment.
+  let usageTracker: SubscriptionUsageTracker | null = null;
 
   const getShellPath = () => process.env.SHELL || "/bin/sh";
   const getShellCwd = () => shellSession?.state.cwd ?? currentCtx?.cwd ?? process.cwd();
@@ -1761,6 +1765,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     invalidateGitStatus();
     invalidateGitBranch();
     resetLayoutCache();
+    usageTracker = null;
     customCompactionEnabled = detectCustomCompactionEnabled(ctx.cwd);
     lastUserPrompt = "";
     isStreaming = false;
@@ -1830,6 +1835,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     liveAssistantUsage = null;
     tuiRef = null;
     currentEditor = null;
+    usageTracker = null;
     resetLayoutCache();
   });
 
@@ -2761,6 +2767,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       leadingIntent: null,
       leadingStatus: null,
     };
+    const usageWindow = readSubscriptionUsageWindow(ctx, allSegmentIds, segmentOptions.usage, usingSubscription);
 
     return {
       model: ctx.model,
@@ -2775,6 +2782,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       autoCompactEnabled: ctx.settingsManager?.getCompactionSettings?.()?.enabled ?? true,
       customCompactionEnabled: customCompactionEnabled || extensionStatuses.has(CUSTOM_COMPACTION_STATUS_KEY),
       usingSubscription,
+      usageWindow,
       queueSummary,
       sessionStartTime,
       shellModeActive: bashModeActive,
@@ -2789,6 +2797,30 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       theme,
       colors,
     };
+  }
+
+  /**
+   * Read the configured subscription usage window. Nothing is fetched unless the opt-in
+   * segment is laid out on a subscription account, and nothing is shown on a Pi revision
+   * whose model registry cannot report usage.
+   */
+  function readSubscriptionUsageWindow(
+    ctx: any,
+    allSegmentIds: StatusLineSegmentId[],
+    options: { windowHours?: number } | undefined,
+    usingSubscription: boolean,
+  ): SubscriptionUsageWindow | null {
+    if (!usingSubscription) return null;
+    if (!allSegmentIds.includes("usage")) return null;
+
+    if (!usageTracker) {
+      const source = getUsageReportSource(ctx.modelRegistry);
+      if (!source) return null;
+      usageTracker = new SubscriptionUsageTracker({ source, onUpdate: () => requestStatusRender() });
+    }
+
+    const windowMs = (options?.windowHours ?? DEFAULT_USAGE_WINDOW_HOURS) * 60 * 60_000;
+    return usageTracker.snapshot(ctx.model?.provider ?? null, windowMs);
   }
 
   /**
