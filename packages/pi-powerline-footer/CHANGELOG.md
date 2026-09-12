@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+### Changed
+- **Editor stash shortcut.** Changed the stash shortcut from `Alt+S` to `Cmd+B` and removed the retired sharp-S compatibility setting.
+- **Upstream sync.** Updated the source copy to `v0.17.1`.
+
+## [0.17.1] - 2026-09-10
+
+### Highlights
+- Large idle sessions now settle instead of repeatedly redrawing the full interface.
+- Working Vibes handles thinking-level model names and session reloads more reliably.
+- Older Git versions and the Kaku terminal now display the expected branch and Nerd Font details.
+
+### Changed
+- **Working Vibes default model** — Use `openai-codex/gpt-5.6-luna:low` for generated status messages.
+
+### Fixed
+- **Idle CPU usage** — Avoid repeated full-screen redraws when background Git checks return unchanged results.
+- **Legacy Git support** — Display the current branch on Git versions older than 2.22. Thanks to [@chengxiang1997](https://github.com/chengxiang1997) for #206.
+- **Kaku terminal support** — Recognize Kaku as a Nerd Font-capable terminal. Thanks to [@DeH40](https://github.com/DeH40) for #207.
+- **Working Vibes model selection** — Handle `:low` and other thinking-level suffixes when selecting the configured model.
+- **Working Vibes reload safety** — Keep the fallback message when generation finishes after a session reload. Thanks to [@efuentesp](https://github.com/efuentesp) for #210.
+
+## [0.17.0] - 2026-09-04
+
+### Highlights
+- Prompts typed during compaction start when Pi is ready, without another keypress.
+- Welcome startup and footer updates do less background work.
+- Git details and thinking levels stay in sync with your current session.
+- Choose whether `/compact <text>` supplies compaction instructions or queues a prompt.
+- Install with newer Pi versions without an artificial version ceiling.
+
+### Added
+- **Compact prompt mode** — Set `powerline.queue.compactPromptMode: "native"` to use `/compact <text>` for custom compaction instructions instead of queuing a prompt. The default behavior is unchanged. Thanks to [@joshuajbrunner](https://github.com/joshuajbrunner) for #191.
+
+### Changed
+- **Pi compatibility** — Allow newer Pi versions while keeping the minimum at 0.81.0.
+- **Git updates** — Avoid unnecessary Git commands when Git information is not displayed. Existing polling settings and dirty branch colors still work (#201).
+- **Welcome startup** — Load recent sessions without blocking startup, and stop loading when the welcome screen is dismissed or the session changes (#199).
+- **Queue display** — Avoid rereading an unchanged inbox and skip footer summaries when the queue segment is disabled or omitted. Queue previews and actions still work (#200).
+- **Powerline placement** — Clarified that the primary Powerline row can be shown above or below the editor. Thanks to [@smileBeda](https://github.com/smileBeda) for #188.
+
+### Fixed
+- **Post-compaction queue delivery** — Start queued prompts when Pi becomes idle after successful compaction, including manual compaction and retries, without further input. Cancel pending delivery if compaction fails or the session ends. Detecting failures from compaction started outside Powerline requires Pi 0.84.3 or newer (#198).
+- **Git session details** — Show the branch, status, and remote-host icons for the current session's directory, refreshing when the session or branch changes (#194). Thanks to [@lengxf](https://github.com/lengxf) for the report.
+- **Terminal detection** — Use `TERM` as a fallback only when `TERM_PROGRAM` is unset when detecting Nerd Font support. Thanks to [@a5ehren](https://github.com/a5ehren) for #192/#195.
+- **Live thinking-level display** — Update the footer when the thinking level changes instead of showing a stale value such as `think:off`. Thanks to [@csp256](https://github.com/csp256) for #196.
+
+## [0.16.0] - 2026-08-25
+
+### Highlights
+- Quote earlier messages with `/reply` without installing a separate extension.
+- Keep custom status colors intact with `customItems[].selfColorize`.
+- Stash drafts now stay out of the editor until you explicitly restore them.
+- Stash history opens faster because project prompt history loads only when you ask for it.
+- Windows users no longer see git console windows flash during footer polling or bash completion.
+
+### Added
+- **Quote previous messages** — Added `/reply` to insert a previous user or assistant message as a Markdown quote. The optional `powerlineShortcuts.reply` shortcut is disabled by default and loads the picker only when used.
+- **Self-colored custom items** — Added `customItems[].selfColorize` so extension statuses can keep embedded ANSI colors, including multiple colors within one item, without being wrapped by the configured custom-item color. Thanks to [@elecnix](https://github.com/elecnix) for #176.
+
+### Changed
+- **Editor stash restore** — Stashed editor text now stays stashed after agent runs. Restore it with `Alt+S` or stash history when you want it back. Closes #183.
+- **Stash history loading** — Recent project prompts now load only when you select that source, and the project scan reads bounded tails from the newest session files. Closes #184.
+
+### Fixed
+- **Windows git polling** — Hide spawned git child-process consoles so detached Windows hosts do not flash a visible window on each footer poll or bash completion. Thanks to [@xing-shuyin](https://github.com/xing-shuyin) for #180.
+
 ## [0.15.1] - 2026-08-19
 
 ### Fixed

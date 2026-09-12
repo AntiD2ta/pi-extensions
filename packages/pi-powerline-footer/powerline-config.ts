@@ -3,6 +3,8 @@ import { normalizeCostCurrency } from "./currency-rates.ts";
 import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
 import type { ColorValue, CustomItemPosition, CustomStatusItem, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
 
+export type CompactPromptMode = "queue" | "native";
+
 export interface PowerlineConfig {
   preset: StatusLinePreset;
   customItems: CustomStatusItem[];
@@ -16,7 +18,7 @@ export interface PowerlineConfig {
   invalidPlacement: string | null;
   welcome: boolean;
   welcomeMode: "overlay" | "header";
-  stashSharpSShortcut: boolean;
+  queue: { compactPromptMode: CompactPromptMode };
   workingVibes: { color?: ColorValue | "rainbow" };
 }
 
@@ -102,6 +104,7 @@ function normalizeCustomStatusItem(raw: unknown, idOverride?: string): CustomSta
     statusKey,
     position: normalizeCustomItemPosition(raw.position),
     color: normalizeCustomColor(raw.color),
+    selfColorize: raw.selfColorize === true,
     prefix: normalizeCustomPrefix(raw.prefix),
     hideWhenMissing: raw.hideWhenMissing !== false,
     excludeFromExtensionStatuses: raw.excludeFromExtensionStatuses !== false,
@@ -210,6 +213,13 @@ function normalizeLayout(
     : { layout: null, invalidLayoutSegments };
 }
 
+function normalizeQueueOptions(raw: unknown): PowerlineConfig["queue"] {
+  if (!isRecord(raw)) return { compactPromptMode: "queue" };
+  return {
+    compactPromptMode: raw.compactPromptMode === "native" ? "native" : "queue",
+  };
+}
+
 function normalizeSegmentOptions(raw: Record<string, unknown>): StatusLineSegmentOptions {
   const options: StatusLineSegmentOptions = {};
 
@@ -307,7 +317,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     invalidPlacement: null,
     welcome: true,
     welcomeMode: "overlay",
-    stashSharpSShortcut: false,
+    queue: { compactPromptMode: "queue" },
     workingVibes: {},
   };
 
@@ -334,7 +344,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     invalidPlacement,
     welcome: value.welcome !== false,
     welcomeMode: value.welcome === "header" ? "header" : "overlay",
-    stashSharpSShortcut: value.stashSharpSShortcut === true,
+    queue: normalizeQueueOptions(value.queue),
     workingVibes: isRecord(value.workingVibes) && typeof value.workingVibes.color === "string" && value.workingVibes.color.trim()
       ? { color: value.workingVibes.color.trim() as ColorValue | "rainbow" }
       : {},
@@ -398,7 +408,7 @@ export function nextPowerlineSettingWithPreset(existingPowerlineSetting: unknown
 
 export function nextPowerlineSettingWithOptions(
   existingPowerlineSetting: unknown,
-  updates: Partial<Pick<PowerlineConfig, "welcome" | "stashSharpSShortcut" | "placement">>,
+  updates: Partial<Pick<PowerlineConfig, "welcome" | "placement">>,
   currentPreset: StatusLinePreset,
 ): unknown {
   if (!isRecord(existingPowerlineSetting)) {
@@ -433,12 +443,14 @@ export function getNotificationExtensionStatuses(
   return notifications;
 }
 
-export function normalizeExtensionStatusValue(value: string): string | null {
+export function normalizeExtensionStatusValue(value: string, preserveAnsi = false): string | null {
   if (!value || visibleWidth(value) <= 0) {
     return null;
   }
 
-  const stripped = value.replace(/(\x1b\[[0-9;]*m|\s|·|[|])+$/, "");
+  const stripped = preserveAnsi
+    ? value.replace(/(\s|·|[|])+$/, "")
+    : value.replace(/(\x1b\[[0-9;]*m|\s|·|[|])+$/, "");
   return visibleWidth(stripped) > 0 ? stripped : null;
 }
 
