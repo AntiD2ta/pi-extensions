@@ -41,9 +41,11 @@ export interface SubscriptionUsageTrackerOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 2_000;
-// Matches pi-ai's own report cache, so a render-driven refresh never reaches the provider
-// more often than the core already allows.
-const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
+// pi-ai caches reports per OAuth account for five minutes and shares one in-flight request,
+// so it owns how often a provider is reached. This shorter TTL only decides how long the
+// footer keeps showing an answer, which bounds how long a re-login shows the previous
+// account's window.
+const DEFAULT_CACHE_TTL_MS = 60_000;
 
 export class SubscriptionUsageTracker {
   private readonly source: UsageReportSource;

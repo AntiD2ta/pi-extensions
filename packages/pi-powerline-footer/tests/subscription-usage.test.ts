@@ -274,6 +274,34 @@ test("tracker refetches when the provider changes", { timeout: 2_000 }, async ()
   assert.deepEqual(providers, ["anthropic", "openai-codex"]);
 });
 
+test("tracker refreshes a window that is a minute old", { timeout: 2_000 }, async () => {
+  const updates = updateWaiter();
+  const used = [0.1, 0.2];
+  let now = 1_000;
+  const tracker = new SubscriptionUsageTracker({
+    source: {
+      getUsageReport: async () =>
+        report([{ duration: FIVE_HOURS, used: used.shift() ?? 0, resetsAt: 9_000 }]),
+    },
+    onUpdate: updates.onUpdate,
+    now: () => now,
+  });
+
+  let updated = updates.next();
+  tracker.snapshot("anthropic", FIVE_HOURS);
+  await updated;
+
+  now += 59_000;
+  assert.deepEqual(tracker.snapshot("anthropic", FIVE_HOURS), { used: 0.1, resetsAt: 9_000 });
+
+  now += 1_000;
+  updated = updates.next();
+  assert.deepEqual(tracker.snapshot("anthropic", FIVE_HOURS), { used: 0.1, resetsAt: 9_000 });
+  await updated;
+
+  assert.deepEqual(tracker.snapshot("anthropic", FIVE_HOURS), { used: 0.2, resetsAt: 9_000 });
+});
+
 test("tracker drops a report that arrives after the provider changed", { timeout: 2_000 }, async () => {
   const updates = updateWaiter();
   const pending = new Map<string, (value: UsageReportLike) => void>();

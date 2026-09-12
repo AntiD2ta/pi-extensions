@@ -500,7 +500,7 @@ The `usage` segment shows how much of one finite subscription usage window is sp
 }
 ```
 
-The window comes from Pi's provider-normalized usage reports, which the extension only reads on a subscription (OAuth) account and only while the segment is laid out. The extension never touches credentials. The segment stays hidden on enterprise, unlimited, API-key, and usage-credit accounts, on providers that report no usage, when the configured window is not among the reported ones, and when a report is unavailable, slow, or failing. It is also hidden on Pi builds whose model registry cannot report usage, so the extension still loads there.
+The window comes from Pi's provider-normalized usage reports, which the extension only reads on a subscription (OAuth) account and only while the segment is laid out. It re-reads them at most once a minute; Pi caches each account's report for five minutes, so that is how often a provider is actually reached. The extension never touches credentials. The segment stays hidden on enterprise, unlimited, API-key, and usage-credit accounts, on providers that report no usage, when the configured window is not among the reported ones, and when a report is unavailable, slow, or failing. It is also hidden on Pi builds whose model registry cannot report usage, so the extension still loads there.
 
 ## Separators
 
