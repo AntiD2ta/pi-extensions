@@ -12,6 +12,10 @@ _Avoid_: mode, phase
 A replace-in-place, one-line display above Pi’s editor that names the current non-running agent state. It is absent while the agent is Running.
 _Avoid_: notification, banner
 
+**Status timestamp**:
+The machine-local wall-clock time and calendar date captured when the status widget enters a visible agent state. It remains fixed until the state changes.
+_Avoid_: machine available time, live clock, uptime
+
 **Input request**:
 An unresolved request for a user's free-text decision, created by the `request_user_input` tool. Its tool result records the request, and a later resolution entry records the next interactive-editor response.
 _Avoid_: prompt, modal, dialog
