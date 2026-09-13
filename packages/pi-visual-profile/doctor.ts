@@ -20,7 +20,6 @@ export interface DoctorReport {
 	lightThemeAvailable: boolean;
 	nativeFenceChromeAvailable: boolean;
 	nativeEditorPaddingAvailable: boolean;
-	nativeThemeOverrideAvailable: boolean;
 	globalPath: string;
 	projectPath?: string;
 	mcpPresentation: string;
@@ -37,7 +36,6 @@ export function formatDoctor(report: DoctorReport): string {
 		"",
 		"Configuration",
 		`  enabled: ${config.enabled ? "yes" : "no"}`,
-		`  theme: ${config.themeMode}`,
 		`  glyphs: ${config.glyphMode}`,
 		`  border: ${config.borderStyle}`,
 		`  padding: ${config.padding}`,
@@ -52,7 +50,6 @@ export function formatDoctor(report: DoctorReport): string {
 		"  footer: never claimed",
 		`  native fence chrome: ${report.nativeFenceChromeAvailable ? "available" : "unavailable"}`,
 		`  native editor padding: ${report.nativeEditorPaddingAvailable ? "available" : "unavailable"}`,
-		`  native theme override: ${report.nativeThemeOverrideAvailable ? "available" : "unavailable"}`,
 		"  editor border glyphs: unavailable (native Pi API gap)",
 		`  MCP presentation: ${report.mcpPresentation}`,
 		`  tool renderer profile: ${report.toolRendererProfileSupported ? "supported" : "unavailable"}`,

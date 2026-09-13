@@ -2,9 +2,6 @@ import { CustomEditor, type ExtensionContext } from "@earendil-works/pi-coding-a
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { GlyphMode, VisualProfileConfig } from "./config.ts";
 
-const PROFILE_THEME_DARK = "pi-visual-profile-dark";
-const PROFILE_THEME_LIGHT = "pi-visual-profile-light";
-
 type MarkdownCodeFenceChrome = {
 	header: (options: { language?: string; path?: string; width: number }) => string[];
 	body: (lines: string[]) => string[];
@@ -18,8 +15,6 @@ type EditorFactory = (
 type ProfileSurfaceUI = {
 	setMarkdownCodeFenceChromeOverride?: (owner: object, chrome: MarkdownCodeFenceChrome | undefined) => unknown;
 	setEditorComponentOverride?: (owner: object, factory: EditorFactory | undefined) => unknown;
-	setThemeOverride?: (owner: object, theme: string | undefined) => unknown;
-	getAllThemes?: () => Array<{ name: string }>;
 };
 
 function glyph(mode: GlyphMode, unicode: string, nerdFont: string, ascii: string): string {
@@ -48,13 +43,10 @@ export function createProfileSurfaces() {
 	const owner = {};
 	let ownsCodeFenceChrome = false;
 	let ownsEditor = false;
-	let ownsTheme = false;
 
 	function apply(ctx: ExtensionContext, config: VisualProfileConfig): void {
 		const enabled = config.enabled && ctx.mode === "tui";
 		const ui = ctx.ui as typeof ctx.ui & ProfileSurfaceUI;
-		const profileTheme = ctx.ui.theme.name?.toLowerCase().includes("light") ? PROFILE_THEME_LIGHT : PROFILE_THEME_DARK;
-		const wantsTheme = enabled && config.themeMode === "profile" && typeof ui.getAllThemes === "function" && ui.getAllThemes().some((theme) => theme.name === profileTheme);
 		if (typeof ui.setMarkdownCodeFenceChromeOverride === "function" && (enabled || ownsCodeFenceChrome)) {
 			ui.setMarkdownCodeFenceChromeOverride(owner, enabled ? createCodeFenceChrome(config) : undefined);
 			ownsCodeFenceChrome = enabled;
@@ -71,10 +63,6 @@ export function createProfileSurfaces() {
 			} : undefined);
 			ownsEditor = wantsEditor;
 		}
-		if (typeof ui.setThemeOverride === "function" && (wantsTheme || ownsTheme)) {
-			ui.setThemeOverride(owner, wantsTheme ? profileTheme : undefined);
-			ownsTheme = wantsTheme;
-		}
 	}
 
 	function release(ctx: ExtensionContext): void {
@@ -86,10 +74,6 @@ export function createProfileSurfaces() {
 		if (ownsEditor && typeof ui.setEditorComponentOverride === "function") {
 			ui.setEditorComponentOverride(owner, undefined);
 			ownsEditor = false;
-		}
-		if (ownsTheme && typeof ui.setThemeOverride === "function") {
-			ui.setThemeOverride(owner, undefined);
-			ownsTheme = false;
 		}
 	}
 

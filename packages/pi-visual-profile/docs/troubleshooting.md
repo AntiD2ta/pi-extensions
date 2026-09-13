@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Run `/visual-profile doctor` first. It reports effective scope, configuration paths, bundled theme availability, code-fence chrome, editor padding, theme override, MCP presentation, and renderer-profile support.
+Run `/visual-profile doctor` first. It reports effective scope, configuration paths, bundled theme availability, code-fence chrome, editor padding, MCP presentation, and renderer-profile support.
 
 | Doctor output | Meaning and action |
 | --- | --- |
