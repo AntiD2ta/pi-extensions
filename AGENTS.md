@@ -44,9 +44,10 @@ When asked to "Pick PI-X":
 
 - The root `package.json` holds the workspaces list and the Pi manifest that loads
   `packages/*/index.ts`. It is `private`. Releases go out as git tags.
-- `packages/pi-powerline-footer` is a maintained source copy of
-  [`nicobailon/pi-powerline-footer`](https://github.com/nicobailon/pi-powerline-footer), without its
-  Git history. Its `UPSTREAM.md`, `NOTICE`, and `LICENSE` record provenance and licensing.
+- `packages/pi-powerline-footer` is a supported shipped extension with its own release line. It is a
+  source copy of [`nicobailon/pi-powerline-footer`](https://github.com/nicobailon/pi-powerline-footer),
+  without its Git history. Its `UPSTREAM.md`, `NOTICE`, and `LICENSE` record provenance, local
+  divergence, sync steps, and licensing.
 - `test/` holds the root tests for package discovery and extension filtering.
 - The extension API docs ship inside the dependency, under
   `node_modules/@earendil-works/pi-coding-agent/docs`. Start with `extensions.md`, `tui.md`,
@@ -84,7 +85,7 @@ When asked to "Pick PI-X":
 
 - `pi-powerline-footer` stays MIT with its original author credited in `package.json`. Record every
   upstream source revision in `UPSTREAM.md` and `NOTICE`.
-- Keep local changes small so the next upstream sync stays cheap.
+- Follow `packages/pi-powerline-footer/UPSTREAM.md` to compare against the recorded revision before a sync, then reconcile or record every divergence.
 - Feature-detect any Pi API that only the `AntiD2ta/pi` fork has, so the extension still runs on public
   Pi. The editor `handleMouse` wrapper in `index.ts` is the existing example.
 - Peer dependency ranges say which Pi versions a package supports. Change them together with the root

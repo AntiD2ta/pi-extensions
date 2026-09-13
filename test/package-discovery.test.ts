@@ -124,6 +124,27 @@ test("package filters load only selected workspace extensions", async (t) => {
 	assert.deepEqual(enabledPaths, [join(fixture.packageDir, "packages", "alpha", "index.ts")]);
 });
 
+test("package filters load powerline and visual profile independently", async (t) => {
+	const fixture = createPackageFixture();
+	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
+
+	for (const extensionPaths of [
+		["packages/pi-powerline-footer/index.ts"],
+		["packages/pi-visual-profile/index.ts"],
+		["packages/pi-powerline-footer/index.ts", "packages/pi-visual-profile/index.ts"],
+	]) {
+		writeFileSync(
+			join(fixture.agentDir, "settings.json"),
+			JSON.stringify({ packages: [{ source: repositoryRoot, extensions: extensionPaths }] }),
+		);
+
+		assert.deepEqual(
+			await loadExtensionPaths(fixture.packageDir, fixture.agentDir),
+			extensionPaths.map((extensionPath) => join(repositoryRoot, extensionPath)).sort(),
+		);
+	}
+});
+
 test("empty package filters load no workspace extensions", async (t) => {
 	const fixture = createPackageFixture();
 	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
