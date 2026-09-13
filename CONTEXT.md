@@ -16,6 +16,20 @@ _Avoid_: notification, banner
 An unresolved request for a user's free-text decision, created by the `request_user_input` tool. Its tool result records the request, and a later resolution entry records the next interactive-editor response.
 _Avoid_: prompt, modal, dialog
 
+## Extension coexistence
+
+**Footer owner**:
+The one extension that renders Pi's footer. `pi-powerline-footer` is the footer owner.
+_Avoid_: footer contributor, shared footer
+
+**Queue owner**:
+The one extension that stores and delivers queued prompts. `pi-powerline-footer` is the queue owner.
+_Avoid_: queue helper, queue integration
+
+**Coexistence**:
+The ADR-0005 rule that supported extensions own disjoint UI surfaces, load independently, and do not read or write each other's settings, storage, or private state. `pi-visual-profile` owns non-footer presentation; Pi owns theme selection.
+_Avoid_: replacement, fallback owner
+
 ## Skill invocation
 
 **Skill reference**:

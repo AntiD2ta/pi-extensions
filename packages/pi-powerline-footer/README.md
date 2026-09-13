@@ -41,6 +41,16 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 Install this extension through the [monorepo README](../../README.md#installation). Restart Pi to activate.
 
+## Support and maintenance
+
+This is a supported shipped extension with its own release line. Under ADR-0005, it owns the footer and queue; `pi-visual-profile` owns non-footer presentation. Package filters can load either extension alone or both together.
+
+The declared Pi peer range is `>=0.81.0`. This workspace develops against the root `@earendil-works/pi-*` devDependencies. Change the peer ranges only with those root devDependencies.
+
+The optional subscription-usage segment feature-detects the AntiD2ta fork's `ModelRegistry.getUsageReport` method. Public Pi and older fork builds load with that segment hidden.
+
+[UPSTREAM.md](UPSTREAM.md) records the copied revision, every local divergence, and the repeatable sync procedure. [NOTICE](NOTICE) and [LICENSE](LICENSE) retain the source notice and MIT terms.
+
 ## Usage
 
 Activates automatically. Toggle with `/powerline`, switch presets with `/powerline <name>`, and move the primary row with `/powerline placement above|below|toggle`.
