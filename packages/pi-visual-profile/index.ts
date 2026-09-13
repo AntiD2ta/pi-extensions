@@ -58,7 +58,6 @@ function doctor(ctx: ExtensionContext, mcpPresentation: string, toolRendererProf
 	const ui = ctx.ui as typeof ctx.ui & {
 		setMarkdownCodeFenceChromeOverride?: unknown;
 		setEditorComponentOverride?: unknown;
-		setThemeOverride?: unknown;
 	};
 	const nativeSurfaceAvailable = ctx.mode === "tui";
 	return formatDoctor({
@@ -68,7 +67,6 @@ function doctor(ctx: ExtensionContext, mcpPresentation: string, toolRendererProf
 		lightThemeAvailable: themes.has(PROFILE_THEME_LIGHT),
 		nativeFenceChromeAvailable: nativeSurfaceAvailable && typeof ui.setMarkdownCodeFenceChromeOverride === "function",
 		nativeEditorPaddingAvailable: nativeSurfaceAvailable && typeof ui.setEditorComponentOverride === "function",
-		nativeThemeOverrideAvailable: nativeSurfaceAvailable && typeof ui.setThemeOverride === "function",
 		globalPath: paths.global,
 		projectPath: projectTrusted ? paths.project : undefined,
 		mcpPresentation,
@@ -143,12 +141,11 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(doctor(ctx, mcpPresentation, Boolean(profileAPI.activateToolRendererProfile)), "info");
 				return;
 			}
-			if (command === "enable" || command === "disable" || command === "inherit") {
-				const patch = command === "enable" ? { enabled: true } : command === "disable" ? { enabled: false } : { themeMode: "inherit" as const };
-				if (!save(ctx, patch, local)) return;
+			if (command === "enable" || command === "disable") {
+				if (!save(ctx, { enabled: command === "enable" }, local)) return;
 				syncPresentation(ctx);
 				const unavailable = command === "enable" && !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
-				ctx.ui.notify(`Visual profile ${command === "inherit" ? "now inherits the selected Pi theme" : `${command}d`}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
+				ctx.ui.notify(`Visual profile ${command}d${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
 			if (command === "glyph" && (value === "unicode" || value === "nerd-font" || value === "ascii")) {
@@ -170,7 +167,7 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Diff layout set to ${value}${local ? " locally" : " globally"}.`, "info");
 				return;
 			}
-			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|inherit|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|diff <stacked|side-by-side>|doctor] [--local]", "error");
+			ctx.ui.notify("Usage: /visual-profile [status|enable|disable|glyph <unicode|nerd-font|ascii>|cards <boxed|minimal>|diff <stacked|side-by-side>|doctor] [--local]", "error");
 		},
 	});
 }

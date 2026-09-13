@@ -1,6 +1,6 @@
 # Coexistence with Powerline
 
-Install either package alone or both together. `pi-powerline-footer` is the only footer owner and queue owner. `pi-visual-profile` owns themes, tool cards, native chat presentation, code-fence chrome, boxed MCP presentation, and doctor output.
+Install either package alone or both together. `pi-powerline-footer` is the only footer owner and queue owner. `pi-visual-profile` ships themes and owns tool cards, native chat presentation, code-fence chrome, boxed MCP presentation, and doctor output. Pi owns theme selection.
 
 Each UI area has one active owner. Owner-scoped overrides elect the newest claim. Releasing a stale claim changes nothing. Releasing the active claim restores the previous owner rather than jumping to Pi's native implementation. An extension author should claim only an area it owns, keep its owner token private, and release only that token.
 

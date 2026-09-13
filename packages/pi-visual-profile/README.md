@@ -2,13 +2,13 @@
 
 Opt-in visual-profile extension shell for Pi. Its single package entry is
 `packages/pi-visual-profile/index.ts`: profile commands, typed configuration,
-tool-card framing, native chat profile overrides, and themes.
+tool-card framing, native chat profile overrides, and bundled themes.
 
 The footer and the queue belong to `pi-powerline-footer`, which owns both surfaces under ADR-0005. This package never renders a footer and never stores queue state.
 
 Start with the [documentation index](docs/INDEX.md) for installation, configuration, authoring, coexistence, troubleshooting, release checks, and provenance.
 
-When enabled, the profile acquires boxed MCP presentation from the bundled adapter, frames Pi's native built-in tool cards, and applies owner-safe fence chrome, themes, and editor padding. The bundled themes are selectable through `/settings` whether the profile is enabled or not.
+When enabled, the profile acquires boxed MCP presentation from the bundled adapter, frames Pi's native built-in tool cards, and applies owner-safe fence chrome and editor padding. Pi owns theme selection. The bundled themes are selectable through `/settings` and `--use-theme` whether the profile is enabled or not.
 
 ## Visual trial
 
@@ -36,7 +36,6 @@ At the Pi prompt, run these commands in order:
 /visual-profile glyph unicode
 /visual-profile glyph ascii
 /visual-profile glyph nerd-font
-/visual-profile inherit
 /visual-profile disable
 ```
 
@@ -56,7 +55,7 @@ For a trusted project override, start Pi in that project and run:
 4. Confirm editor padding does not change cursor placement, multiline editing, history, paste, autocomplete, or mouse clicks. `borderStyle` applies to fenced-code chrome only. Pi has no public API for editor border glyphs.
 5. Compare `/visual-profile cards boxed` with `/visual-profile cards minimal`. Both retain Pi's native tool content; boxed adds the state-coloured frame.
 6. Confirm `/visual-profile doctor` reports the effective scope, theme availability, native chat capabilities, MCP presentation compatibility, and tool renderer profile capability.
-7. Restart Pi with the same `trial_home`; confirm the selected profile, glyph settings, and card style persist.
+7. Restart Pi with the same `trial_home`; confirm Pi's selected theme and the profile's enablement, glyph settings, and card style persist.
 8. Run one MCP call after setup. Confirm the adapter-owned card shows `MCP`, the server and operation, a textual status, bounded result text, and the configured border and glyph mode. Use Ctrl+O to compare collapsed and expanded output.
 9. Disable the profile, then repeat the MCP call. Confirm native fences and adapter rendering return while `/mcp setup` and configuration discovery remain available.
 

@@ -3,13 +3,11 @@ import { dirname } from "node:path";
 
 export type GlyphMode = "unicode" | "nerd-font" | "ascii";
 export type BorderStyle = "rounded" | "sharp" | "none";
-export type ThemeMode = "profile" | "inherit";
 export type ToolCardStyle = "boxed" | "minimal";
 export type DiffLayout = "stacked" | "side-by-side";
 
 export interface VisualProfileConfig {
 	enabled: boolean;
-	themeMode: ThemeMode;
 	glyphMode: GlyphMode;
 	borderStyle: BorderStyle;
 	padding: number;
@@ -19,7 +17,6 @@ export interface VisualProfileConfig {
 
 export const DEFAULT_CONFIG: VisualProfileConfig = {
 	enabled: false,
-	themeMode: "profile",
 	glyphMode: "unicode",
 	borderStyle: "rounded",
 	padding: 1,
@@ -40,7 +37,6 @@ function parseConfigPatch(value: unknown): Partial<VisualProfileConfig> {
 
 	return {
 		...(typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}),
-		...(isOneOf(value.themeMode, ["profile", "inherit"]) ? { themeMode: value.themeMode } : {}),
 		...(isOneOf(value.glyphMode, ["unicode", "nerd-font", "ascii"]) ? { glyphMode: value.glyphMode } : {}),
 		...(isOneOf(value.borderStyle, ["rounded", "sharp", "none"]) ? { borderStyle: value.borderStyle } : {}),
 		...(typeof value.padding === "number" && Number.isInteger(value.padding) && value.padding >= 0 && value.padding <= 3

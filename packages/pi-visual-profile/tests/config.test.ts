@@ -47,6 +47,10 @@ test("saving configuration keeps existing valid fields", (t) => {
 	});
 });
 
+test("configuration ignores legacy theme selection", () => {
+	assert.equal("themeMode" in parseConfig({ themeMode: "profile" }), false);
+});
+
 test("configuration accepts a tool card style", () => {
 	assert.deepEqual(parseConfig({ toolCardStyle: "minimal" }), {
 		...DEFAULT_CONFIG,
