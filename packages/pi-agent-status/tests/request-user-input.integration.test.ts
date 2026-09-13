@@ -134,6 +134,7 @@ async function createHarness(
 }
 
 test("request_user_input ends the run without a follow-up model turn", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const { events, faux, session, widgets } = await createHarness(t);
 	faux.setResponses([
 		fauxAssistantMessage(fauxToolCall("request_user_input", request), { stopReason: "toolUse" }),
@@ -149,26 +150,28 @@ test("request_user_input ends the run without a follow-up model turn", async (t)
 	assert.equal(session.messages.some((message) =>
 		message.role === "assistant" && message.content.some((content) =>
 			content.type === "text" && content.text === "unexpected automatic follow-up")), false);
-	assert.deepEqual(widgets.at(-1), ["agent-status", ["Needs input"]]);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Needs input · 14:06:09 -- 13:09:2026"]]);
 });
 
 test("terminal failures and interruptions keep their widget state", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const failure = await createHarness(t);
 	failure.faux.setResponses([
 		fauxAssistantMessage("", { stopReason: "error", errorMessage: "HTTP 400: invalid request" }),
 	]);
 	await failure.session.prompt("Fail this run.");
-	assert.deepEqual(failure.widgets.at(-1), ["agent-status", ["Failed"]]);
+	assert.deepEqual(failure.widgets.at(-1), ["agent-status", ["Failed · 14:06:09 -- 13:09:2026"]]);
 
 	const interruption = await createHarness(t);
 	interruption.faux.setResponses([
 		fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "Request was aborted" }),
 	]);
 	await interruption.session.prompt("Interrupt this run.");
-	assert.deepEqual(interruption.widgets.at(-1), ["agent-status", ["Interrupted"]]);
+	assert.deepEqual(interruption.widgets.at(-1), ["agent-status", ["Interrupted · 14:06:09 -- 13:09:2026"]]);
 });
 
 test("a handled tool failure does not produce Failed", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const { faux, session, widgets } = await createHarness(t, { withFailingTool: true });
 	faux.setResponses([
 		fauxAssistantMessage(fauxToolCall("handled_failure", {}), { stopReason: "toolUse" }),
@@ -177,11 +180,12 @@ test("a handled tool failure does not produce Failed", async (t) => {
 
 	await session.prompt("Use the failing tool.");
 
-	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed"]]);
-	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Failed"), false);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed · 14:06:09 -- 13:09:2026"]]);
+	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Failed · 14:06:09 -- 13:09:2026"), false);
 });
 
 test("a retry replaces its earlier failure before settlement", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const { faux, session, widgets } = await createHarness(t, { retry: true });
 	faux.setResponses([
 		fauxAssistantMessage("", { stopReason: "error", errorMessage: "HTTP 503: overloaded" }),
@@ -191,8 +195,8 @@ test("a retry replaces its earlier failure before settlement", async (t) => {
 	await session.prompt("Retry this run.");
 
 	assert.equal(faux.state.callCount, 2);
-	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed"]]);
-	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Failed"), false);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed · 14:06:09 -- 13:09:2026"]]);
+	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Failed · 14:06:09 -- 13:09:2026"), false);
 });
 
 test("a non-terminating sibling tool result causes a follow-up model turn", async (t) => {
@@ -214,6 +218,7 @@ test("a non-terminating sibling tool result causes a follow-up model turn", asyn
 });
 
 test("the agent receives exclusive-call guidance and resumes from the next free-text prompt", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const { faux, session, widgets } = await createHarness(t);
 	let firstContext: Context | undefined;
 	let resumedContext: Context | undefined;
@@ -252,11 +257,12 @@ test("the agent receives exclusive-call guidance and resumes from the next free-
 	const response = entries.find((entry) =>
 		entry.type === "message" && entry.message.role === "user" && entry.parentId === resolution.id);
 	assert.ok(response);
-	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed"]]);
-	assert.equal(widgets.some(([, value]) => value?.[0] === "Ready"), true);
+	assert.deepEqual(widgets.at(-1), ["agent-status", ["Completed · 14:06:09 -- 13:09:2026"]]);
+	assert.equal(widgets.some(([, widget]) => widget?.[0] === "Ready · 14:06:09 -- 13:09:2026"), true);
 });
 
 test("resuming restores an unanswered request without replaying its tool call", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-status-resume-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -275,7 +281,7 @@ test("resuming restores an unanswered request without replaying its tool call", 
 	assert.equal(resumed.faux.state.callCount, 0);
 	assert.equal(resumed.events.some((event) => event.type === "tool_execution_start"), false);
 	assert.equal(resumed.session.sessionManager.getEntries().length, entryCount);
-	assert.deepEqual(resumed.widgets.at(-1), ["agent-status", ["Needs input"]]);
+	assert.deepEqual(resumed.widgets.at(-1), ["agent-status", ["Needs input · 14:06:09 -- 13:09:2026"]]);
 
 	resumed.faux.setResponses([fauxAssistantMessage("Continuing with PostgreSQL.")]);
 	await resumed.session.prompt("Use PostgreSQL.", { source: "interactive" });
@@ -289,5 +295,6 @@ test("resuming restores an unanswered request without replaying its tool call", 
 
 	const resolvedResume = await createHarness(t, { root, sessionFile });
 	assert.equal(resolvedResume.faux.state.callCount, 0);
-	assert.equal(resolvedResume.widgets.some(([, widget]) => widget?.[0] === "Needs input"), false);
+	assert.equal(resolvedResume.widgets.some(([, widget]) =>
+		widget?.[0] === "Needs input · 14:06:09 -- 13:09:2026"), false);
 });

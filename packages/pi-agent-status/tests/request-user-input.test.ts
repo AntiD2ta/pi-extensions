@@ -48,7 +48,8 @@ async function startSession(fake: ReturnType<typeof createFakePi>, mode: string)
 	});
 }
 
-test("a TUI session shows Ready above the editor", async () => {
+test("a TUI session shows Ready with its status timestamp above the editor", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const fake = createFakePi();
 	extension(fake.pi);
 	assert.equal(fake.getTool(), undefined);
@@ -59,7 +60,90 @@ test("a TUI session shows Ready above the editor", async () => {
 
 	await startSession(fake, "tui");
 	assert.ok(fake.getTool());
-	assert.deepEqual(fake.widgets, [["agent-status", ["Ready"]]]);
+	assert.deepEqual(fake.widgets, [["agent-status", ["Ready · 14:06:09 -- 13:09:2026"]]]);
+});
+
+test("the status timestamp pads the year to four digits", async (t) => {
+	const now = new Date(2026, 0, 2, 3, 4, 5);
+	now.setFullYear(7);
+	t.mock.timers.enable({ apis: ["Date"], now });
+	const fake = createFakePi();
+	extension(fake.pi);
+
+	await startSession(fake, "tui");
+
+	assert.deepEqual(fake.widgets, [["agent-status", ["Ready · 03:04:05 -- 02:01:0007"]]]);
+});
+
+test("the status timestamp is subdued beside the status label", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
+	const fake = createFakePi();
+	extension(fake.pi);
+	const sessionStart = fake.getHandler("session_start");
+	assert.ok(sessionStart);
+
+	await sessionStart({ type: "session_start", reason: "startup" }, {
+		mode: "tui",
+		ui: {
+			setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
+			theme: { fg: (color: string, text: string) => `<${color}>${text}</${color}>` },
+		},
+		sessionManager: { getBranch: () => [] },
+	});
+
+	assert.deepEqual(fake.widgets, [["agent-status", [
+		"<accent>Ready</accent><muted> · 14:06:09 -- 13:09:2026</muted>",
+	]]]);
+});
+
+test("the status timestamp remains fixed until the status changes", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
+	const fake = createFakePi();
+	extension(fake.pi);
+	const settled = fake.getHandler("agent_settled");
+	assert.ok(settled);
+	const ctx = { mode: "tui", ui: {
+		setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
+		theme: { fg: (_color: string, text: string) => text },
+	} };
+
+	await startSession(fake, "tui");
+	await settled({ type: "agent_settled" }, ctx);
+	t.mock.timers.tick(1000);
+	await settled({ type: "agent_settled" }, ctx);
+
+	assert.deepEqual(fake.widgets, [
+		["agent-status", ["Ready · 14:06:09 -- 13:09:2026"]],
+		["agent-status", ["Completed · 14:06:09 -- 13:09:2026"]],
+	]);
+});
+
+test("a status change captures a new status timestamp", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
+	const fake = createFakePi();
+	extension(fake.pi);
+	const agentStart = fake.getHandler("agent_start");
+	const agentEnd = fake.getHandler("agent_end");
+	const settled = fake.getHandler("agent_settled");
+	assert.ok(agentStart);
+	assert.ok(agentEnd);
+	assert.ok(settled);
+
+	await startSession(fake, "tui");
+	const ctx = { mode: "tui", ui: {
+		setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
+		theme: { fg: (_color: string, text: string) => text },
+	} };
+	await agentStart({ type: "agent_start" }, ctx);
+	t.mock.timers.tick(1000);
+	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
+	await settled({ type: "agent_settled" }, ctx);
+
+	assert.deepEqual(fake.widgets, [
+		["agent-status", ["Ready · 14:06:09 -- 13:09:2026"]],
+		["agent-status", undefined],
+		["agent-status", ["Completed · 14:06:10 -- 13:09:2026"]],
+	]);
 });
 
 test("request_user_input requires every decision field", async () => {
@@ -150,7 +234,8 @@ test("a nonblank interactive response resolves the pending input request", async
 	}]);
 });
 
-test("agent lifecycle projects terminal states above the editor", async () => {
+test("agent lifecycle projects terminal states above the editor", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
@@ -164,15 +249,11 @@ test("agent lifecycle projects terminal states above the editor", async () => {
 	assert.ok(input);
 
 	fake.widgets.length = 0;
-	const colors: Array<[string, string]> = [];
 	const ctx = {
 		mode: "tui",
 		ui: {
 			setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
-			theme: { fg: (color: string, text: string) => {
-				colors.push([color, text]);
-				return text;
-			} },
+			theme: { fg: (color: string, text: string) => `<${color}>${text}</${color}>` },
 		},
 	};
 	await agentStart({ type: "agent_start" }, ctx);
@@ -189,22 +270,17 @@ test("agent lifecycle projects terminal states above the editor", async () => {
 
 	assert.deepEqual(fake.widgets, [
 		["agent-status", undefined],
-		["agent-status", ["Failed"]],
+		["agent-status", ["<error>Failed</error><muted> · 14:06:09 -- 13:09:2026</muted>"]],
 		["agent-status", undefined],
-		["agent-status", ["Interrupted"]],
+		["agent-status", ["<error>Interrupted</error><muted> · 14:06:09 -- 13:09:2026</muted>"]],
 		["agent-status", undefined],
-		["agent-status", ["Completed"]],
-		["agent-status", ["Ready"]],
-	]);
-	assert.deepEqual(colors, [
-		["error", "Failed"],
-		["error", "Interrupted"],
-		["accent", "Completed"],
-		["accent", "Ready"],
+		["agent-status", ["<accent>Completed</accent><muted> · 14:06:09 -- 13:09:2026</muted>"]],
+		["agent-status", ["<accent>Ready</accent><muted> · 14:06:09 -- 13:09:2026</muted>"]],
 	]);
 });
 
-test("an unresolved input request takes precedence at settlement and resolves to Ready", async () => {
+test("an unresolved input request takes precedence at settlement and resolves to Ready", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
@@ -218,20 +294,13 @@ test("an unresolved input request takes precedence at settlement and resolves to
 	assert.ok(settled);
 
 	fake.widgets.length = 0;
-	const colors: Array<[string, string]> = [];
 	const ctx = {
 		mode: "tui",
 		ui: {
 			setWidget: (key: string, value: string[] | undefined) => fake.widgets.push([key, value]),
 			theme: {
-				fg: (color: string, text: string) => {
-					colors.push([color, text]);
-					return text;
-				},
-				bg: (color: string, text: string) => {
-					colors.push([color, text]);
-					return text;
-				},
+				fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+				bg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 			},
 		},
 	};
@@ -249,19 +318,15 @@ test("an unresolved input request takes precedence at settlement and resolves to
 	await input({ type: "input", source: "interactive", text: "Use PostgreSQL." }, ctx);
 
 	assert.deepEqual(fake.widgets, [
-		["agent-status", ["Needs input"]],
-		["agent-status", ["Needs input"]],
-		["agent-status", ["Ready"]],
-	]);
-	assert.deepEqual(colors, [
-		["warning", "Needs input"],
-		["toolPendingBg", "Needs input"],
-		["warning", "Needs input"],
-		["toolPendingBg", "Needs input"],
+		["agent-status", [
+			"<toolPendingBg><warning>Needs input</warning><muted> · 14:06:09 -- 13:09:2026</muted></toolPendingBg>",
+		]],
+		["agent-status", ["Ready · 14:06:09 -- 13:09:2026"]],
 	]);
 });
 
-test("the latest agent end replaces an earlier terminal result", async () => {
+test("the latest agent end replaces an earlier terminal result", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
@@ -282,10 +347,11 @@ test("the latest agent end replaces an earlier terminal result", async () => {
 	await agentEnd({ type: "agent_end", messages: [{ role: "assistant", stopReason: "aborted" }] }, ctx);
 	await settled({ type: "agent_settled" }, ctx);
 
-	assert.deepEqual(widgets, [["agent-status", ["Interrupted"]]]);
+	assert.deepEqual(widgets, [["agent-status", ["Interrupted · 14:06:09 -- 13:09:2026"]]]);
 });
 
-test("a session reload discards terminal presentation state", async () => {
+test("a session reload discards terminal presentation state", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
@@ -310,12 +376,13 @@ test("a session reload discards terminal presentation state", async () => {
 	await sessionStart({ type: "session_start", reason: "reload" }, ctx);
 
 	assert.deepEqual(widgets, [
-		["agent-status", ["Failed"]],
-		["agent-status", ["Ready"]],
+		["agent-status", ["Failed · 14:06:09 -- 13:09:2026"]],
+		["agent-status", ["Ready · 14:06:09 -- 13:09:2026"]],
 	]);
 });
 
-test("resuming restores an unanswered input request", async () => {
+test("resuming restores an unanswered input request", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const fake = createFakePi();
 	extension(fake.pi);
 	const sessionStart = fake.getHandler("session_start");
@@ -353,7 +420,7 @@ test("resuming restores an unanswered input request", async () => {
 		},
 	});
 
-	assert.deepEqual(widgets, [["agent-status", ["Needs input"]]]);
+	assert.deepEqual(widgets, [["agent-status", ["Needs input · 14:06:09 -- 13:09:2026"]]]);
 
 	await input({ type: "input", source: "interactive", text: "Use PostgreSQL." }, {});
 	assert.deepEqual(fake.entries, [{
