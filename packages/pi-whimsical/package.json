@@ -1,0 +1,22 @@
+{
+  "name": "pi-whimsical",
+  "version": "0.1.0",
+  "description": "Whimsical working messages for Pi",
+  "type": "module",
+  "files": [
+    "index.ts",
+    "tests/**/*.ts"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.81.0 <0.85.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
