@@ -49,6 +49,7 @@ Use `"extensions": []` to load no extensions from the package. Omitting `extensi
 
 ```bash
 npm ci --ignore-scripts
+npm run prepare:mcp-tests
 npm run typecheck
 npm test
 ```
