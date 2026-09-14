@@ -40,6 +40,20 @@ _Avoid_: replacement, fallback owner
 A literal `/skill:<name>` token in ordinary prompt text. Pi completes it but does not expand it; a skill invocation must begin the submitted input.
 _Avoid_: embedded command, inline command
 
+## Review orchestration
+
+**Review intake**:
+The parent-session step that turns a user's natural-language review request into one validated, structured review request. It asks the user only for decisions that repository inspection cannot resolve safely.
+_Avoid_: target parsing, review prompt
+
+**Review request**:
+The structured input that fixes the review type, target, repair mode, driver, artifact scope, and optional instructions before a review run starts.
+_Avoid_: review command, prompt
+
+**Review driver**:
+A registered code or documentation review procedure that follows the review result protocol. A driver cannot choose its own model, tools, extensions, or repair permissions.
+_Avoid_: reviewer, command, arbitrary skill
+
 ## Subagents
 
 **Subagent role**:
