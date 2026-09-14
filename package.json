@@ -19,6 +19,7 @@
     ]
   },
   "scripts": {
+    "prepare:mcp-tests": "npm run build:public --workspace pi-mcp-adapter && npm install --prefix packages/pi-mcp-adapter/examples/interactive-visualizer --ignore-scripts --no-package-lock --no-audit --no-fund && npm run build --prefix packages/pi-mcp-adapter/examples/interactive-visualizer",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces",
     "test": "node --experimental-strip-types --test test/**/*.test.ts && npm run test --workspaces"
   },
