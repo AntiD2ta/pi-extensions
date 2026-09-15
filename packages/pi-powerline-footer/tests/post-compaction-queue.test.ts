@@ -120,7 +120,13 @@ test("Powerline releases held prompts in FIFO order after matching continuation 
   });
   assert.deepEqual(h.emittedCoordinationEvents.at(-1), {
     channel: "pi-handoff-compaction:v1",
-    data: { version: 1, kind: "acknowledged", sessionId: "readiness", orchestrationId: "handoff-1" },
+    data: {
+      version: 1,
+      kind: "acknowledged",
+      sessionId: "readiness",
+      orchestrationId: "handoff-1",
+      capturesInput: true,
+    },
   });
   await h.emit("session_compact_failed", { aborted: true });
   await h.emit("session_compact", { willRetry: false });

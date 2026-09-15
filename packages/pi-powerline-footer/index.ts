@@ -1644,7 +1644,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function isHandoffHeldFor(ctx: { sessionManager?: { getSessionId?: () => string } }): boolean {
-    return handoffHold?.sessionId === getQueueSessionId(ctx);
+    return handoffHold !== null && handoffHold.sessionId === getQueueSessionId(ctx);
   }
 
   function cancelPostCompactionDelivery(): void {
@@ -1798,6 +1798,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         kind: "acknowledged",
         sessionId: event.sessionId,
         orchestrationId: event.orchestrationId,
+        capturesInput: true,
       });
       requestQueueRender();
       return;
@@ -1822,6 +1823,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       finishFailedCompaction(currentCtx, event.reason!);
     }
   }) ?? null;
+
+  pi.on("input", (event, ctx) => {
+    if (event.source === "extension" || handoffHold === null
+      || event.images?.length || event.text.trim().startsWith("/")) return { action: "continue" };
+    return capturePostCompactPrompt(ctx, event.text)
+      ? { action: "handled" }
+      : { action: "continue" };
+  });
 
   // Track session start
   pi.on("session_start", async (event, ctx) => {

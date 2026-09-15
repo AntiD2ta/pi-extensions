@@ -24,6 +24,7 @@ type HandoffOperation = {
 	writeFailed: boolean;
 	handoffTurnAborted: boolean;
 	continuationTurnAborted: boolean;
+	powerlineCapturesInput: boolean;
 	boundaryId?: string;
 	continuationPrompt?: string;
 };
@@ -70,6 +71,18 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 	let operation: HandoffOperation | undefined;
 	let automaticTriggerPending = false;
 	let automaticHandoffAttempted = false;
+
+	pi.events?.on?.(coordinationChannel, (event) => {
+		if (typeof event !== "object" || event === null
+			|| !("version" in event) || event.version !== 1
+			|| !("kind" in event) || event.kind !== "acknowledged"
+			|| !("capturesInput" in event) || event.capturesInput !== true
+			|| !("sessionId" in event) || typeof event.sessionId !== "string"
+			|| !("orchestrationId" in event) || typeof event.orchestrationId !== "string"
+			|| operation?.sessionId !== event.sessionId
+			|| operation.orchestrationId !== event.orchestrationId) return;
+		operation.powerlineCapturesInput = true;
+	});
 
 	function reportHandoffFailure(ctx: ExtensionContext, reason: string) {
 		const failedOperation = operation;
@@ -133,6 +146,7 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 			writeFailed: false,
 			handoffTurnAborted: false,
 			continuationTurnAborted: false,
+			powerlineCapturesInput: false,
 		};
 		if (operation.sessionId) {
 			pi.events?.emit(coordinationChannel, {
@@ -189,6 +203,9 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 
 	pi.on("input", (event, ctx) => {
 		if (operation === undefined || event.source === "extension") return { action: "continue" };
+		if (operation.powerlineCapturesInput
+			&& !event.images?.length
+			&& !event.text.trim().startsWith("/")) return { action: "continue" };
 		const message = "Handoff compaction is in progress. Wait for the continuation prompt to finish.";
 		if (ctx.hasUI) ctx.ui.notify(message, "error");
 		else console.error(message);
