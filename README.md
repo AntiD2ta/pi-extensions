@@ -42,6 +42,7 @@ Use `"extensions": []` to load no extensions from the package. Omitting `extensi
 ## Packages
 
 - [`pi-agent-status`](packages/pi-agent-status/README.md): non-modal free-text input requests for agents.
+- [`pi-handoff-compaction`](packages/pi-handoff-compaction): structured same-session handoff compaction.
 - [`pi-powerline-footer`](packages/pi-powerline-footer/README.md): a Powerline-style Pi status bar.
 - [`pi-visual-profile`](packages/pi-visual-profile/README.md): an opt-in visual-profile extension shell.
 

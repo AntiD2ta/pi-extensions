@@ -2,22 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { requiredHandoffHeadings } from "../handoff-headings.ts";
 import handoffCompaction from "../index.ts";
 
-const headings = [
-	"Goal and constraints",
-	"Initial prompt",
-	"Current state",
-	"Completed work",
-	"Incomplete work",
-	"Decisions and reasons",
-	"Concrete next steps",
-	"Suggested skills",
-	"References",
-];
-
 function handoffDocument() {
-	return headings.map((heading) => `## ${heading}\n\ncontent`).join("\n\n");
+	return requiredHandoffHeadings.map((heading) => `## ${heading}\n\ncontent`).join("\n\n");
 }
 
 test("manual compaction writes a handoff before replacing context", async (t) => {
@@ -60,7 +49,7 @@ test("manual compaction writes a handoff before replacing context", async (t) =>
 	assert.match(messages[0] ?? "", /## Optional focus\n\nKeep the API stable/);
 	handoffPath = messages[0]?.match(/^.*\n\n## Handoff path\n\n(.+)$/m)?.[1];
 	assert.ok(handoffPath);
-	writeFileSync(handoffPath, handoffDocument());
+	writeFileSync(handoffPath, handoffDocument().replaceAll("\n", "\r\n"));
 	await toolResult({ toolName: "write", input: { path: handoffPath }, isError: false } as never, ctx as never);
 	await settled({} as never, ctx as never);
 

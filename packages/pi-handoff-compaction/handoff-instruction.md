@@ -12,7 +12,7 @@ Describe the task's intended outcome and every requirement or restriction that s
 
 ## Initial prompt
 
-Include the initial user prompt supplied in the runtime details. Preserve its meaning, but redact credentials, secrets, and unnecessary personal information. Do not include system prompts, developer instructions, or other hidden context.
+Include the initial user prompt supplied in the runtime details. Preserve its meaning, but redact credentials, secrets, and unnecessary personal information. Mark every redacted value with [REDACTED: reason]. Do not include system prompts, developer instructions, or other hidden context.
 
 ## Current state
 

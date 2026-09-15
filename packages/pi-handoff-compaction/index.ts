@@ -4,21 +4,11 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { isWriteToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { requiredHandoffHeadings } from "./handoff-headings.ts";
 import { createHandoffPrompt } from "./handoff-prompt.ts";
 
 const handoffBoundaryEntryType = "handoff-compaction-boundary";
 const neutralCompactionSummary = "The prior task state was externalized. Follow the next user message.";
-const headings = [
-	"Goal and constraints",
-	"Initial prompt",
-	"Current state",
-	"Completed work",
-	"Incomplete work",
-	"Decisions and reasons",
-	"Concrete next steps",
-	"Suggested skills",
-	"References",
-];
 type HandoffOperation = {
 	phase: "awaiting-cancellation" | "awaiting-settlement" | "awaiting-replacement";
 	handoffPath: string;
@@ -32,7 +22,7 @@ function validHandoff(handoffPath: string) {
 	try {
 		if (!lstatSync(handoffPath).isFile()) return false;
 		const content = readFileSync(handoffPath, "utf8");
-		return content.trim().length > 0 && headings.every((heading) => new RegExp(`^## ${heading}$`, "m").test(content));
+		return content.trim().length > 0 && requiredHandoffHeadings.every((heading) => new RegExp(`^## ${heading}$`, "m").test(content));
 	} catch {
 		return false;
 	}
