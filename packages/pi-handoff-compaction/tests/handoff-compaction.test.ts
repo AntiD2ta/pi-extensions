@@ -455,3 +455,291 @@ test("handoff compaction writes failures to stderr without a UI", async (t) => {
 	const message = "Handoff compaction failed before context replacement: the write tool is unavailable. The conversation was not compacted.";
 	assert.deepEqual(errors, [message]);
 });
+
+test("automatic threshold starts one handoff at 90 percent of the active context window", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const messages: string[] = [];
+	let compactCalls = 0;
+	let tokens = 179_999;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		sendUserMessage(message: string) { messages.push(message); },
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 200_000 },
+		getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: (tokens / 200_000) * 100 }),
+		compact() { compactCalls++; },
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	assert.ok(turnEnd);
+
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 0);
+
+	tokens = 180_000;
+	await turnEnd({} as never, ctx as never);
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 1);
+	assert.equal(messages.length, 0);
+});
+
+test("automatic threshold uses 90 percent for small context windows", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	let compactCalls = 0;
+	let tokens = 899;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 1_000 },
+		getContextUsage: () => ({ tokens, contextWindow: 1_000, percent: (tokens / 1_000) * 100 }),
+		compact() { compactCalls++; },
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	assert.ok(turnEnd);
+
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 0);
+
+	tokens = 900;
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 1);
+});
+
+test("automatic threshold caps large context windows at 275,000 tokens", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	let compactCalls = 0;
+	let tokens = 274_999;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 400_000 },
+		getContextUsage: () => ({ tokens, contextWindow: 400_000, percent: (tokens / 400_000) * 100 }),
+		compact() { compactCalls++; },
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	assert.ok(turnEnd);
+
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 0);
+
+	tokens = 275_000;
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 1);
+});
+
+test("an earlier native threshold starts the handoff immediately", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const messages: string[] = [];
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		sendUserMessage(message: string) { messages.push(message); },
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+
+	handoffCompaction(pi);
+	const beforeCompact = handlers.get("session_before_compact");
+	const compactFailed = handlers.get("session_compact_failed");
+	assert.ok(beforeCompact);
+	assert.ok(compactFailed);
+
+	const result = await beforeCompact({ reason: "threshold", branchEntries: [] } as never, {} as never);
+	assert.deepEqual(result, { cancel: true });
+	await compactFailed({ reason: "threshold", aborted: true } as never, {} as never);
+	assert.equal(messages.length, 1);
+});
+
+test("a model switch recalculates later automatic checks without restarting handoff", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	let compactCalls = 0;
+	let model = { contextWindow: 200_000 };
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		get model() { return model; },
+		getContextUsage: () => ({ tokens: 100_000, contextWindow: model.contextWindow, percent: 50 }),
+		compact() { compactCalls++; },
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	assert.ok(turnEnd);
+
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 0);
+
+	model = { contextWindow: 100_000 };
+	await turnEnd({} as never, ctx as never);
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 1);
+});
+
+test("automatic handoff follows the manual handoff workflow through continuation", async (t) => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const messages: string[] = [];
+	const compactions: Array<{ onComplete?: () => void }> = [];
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		sendUserMessage(message: string) { messages.push(message); },
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 200_000 },
+		getContextUsage: () => ({ tokens: 180_000, contextWindow: 200_000, percent: 90 }),
+		compact(options: { onComplete?: () => void }) { compactions.push(options); },
+		sessionManager: { getLeafId: () => "handoff-boundary" },
+	};
+	let handoffPath: string | undefined;
+	t.after(() => { if (handoffPath) rmSync(handoffPath, { force: true }); });
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	const beforeCompact = handlers.get("session_before_compact");
+	const compactFailed = handlers.get("session_compact_failed");
+	const toolResult = handlers.get("tool_result");
+	const settled = handlers.get("agent_settled");
+	assert.ok(turnEnd);
+	assert.ok(beforeCompact);
+	assert.ok(compactFailed);
+	assert.ok(toolResult);
+	assert.ok(settled);
+
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactions.length, 1);
+	assert.deepEqual(await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never), { cancel: true });
+	await compactFailed({ reason: "manual", aborted: true } as never, ctx as never);
+	handoffPath = messages[0]?.match(/^.*\n\n## Handoff path\n\n(.+)$/m)?.[1];
+	assert.ok(handoffPath);
+	writeFileSync(handoffPath, handoffDocument());
+	await toolResult({ toolName: "write", input: { path: handoffPath }, isError: false } as never, ctx as never);
+	await settled({} as never, ctx as never);
+
+	assert.equal(compactions.length, 2);
+	assert.deepEqual(await beforeCompact({ reason: "manual", preparation: { tokensBefore: 42 } } as never, ctx as never), {
+		compaction: {
+			summary: "The prior task state was externalized. Follow the next user message.",
+			firstKeptEntryId: "handoff-boundary",
+			tokensBefore: 42,
+		},
+	});
+	compactions[1]?.onComplete?.();
+	assert.equal(messages.at(-1), `Read and follow ${handoffPath}`);
+});
+
+test("failed automatic handoff attempts are not retried by duplicate triggers", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const messages: string[] = [];
+	let compactCalls = 0;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		sendUserMessage(message: string) { messages.push(message); },
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 200_000 },
+		getContextUsage: () => ({ tokens: 180_000, contextWindow: 200_000, percent: 90 }),
+		compact() { compactCalls++; },
+		hasUI: true,
+		ui: { notify() {} },
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	const beforeCompact = handlers.get("session_before_compact");
+	const compactFailed = handlers.get("session_compact_failed");
+	assert.ok(turnEnd);
+	assert.ok(beforeCompact);
+	assert.ok(compactFailed);
+
+	await turnEnd({} as never, ctx as never);
+	await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+	await compactFailed({ reason: "manual", aborted: false } as never, ctx as never);
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 1);
+
+	await beforeCompact({ reason: "threshold", branchEntries: [] } as never, ctx as never);
+	await compactFailed({ reason: "threshold", aborted: true } as never, ctx as never);
+	assert.equal(messages.length, 0);
+});
+
+test("model switches do not reset an active automatic handoff attempt", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	let compactCalls = 0;
+	let model = { contextWindow: 200_000 };
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		get model() { return model; },
+		getContextUsage: () => ({ tokens: 180_000, contextWindow: model.contextWindow, percent: 90 }),
+		compact() { compactCalls++; },
+		hasUI: true,
+		ui: { notify() {} },
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	const beforeCompact = handlers.get("session_before_compact");
+	const compactFailed = handlers.get("session_compact_failed");
+	assert.ok(turnEnd);
+	assert.ok(beforeCompact);
+	assert.ok(compactFailed);
+
+	await turnEnd({} as never, ctx as never);
+	await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+	model = { contextWindow: 400_000 };
+	await turnEnd({} as never, ctx as never);
+	await compactFailed({ reason: "manual", aborted: false } as never, ctx as never);
+	model = { contextWindow: 200_000 };
+	await turnEnd({} as never, ctx as never);
+	assert.equal(compactCalls, 1);
+});
+
+test("provider overflow before handoff generation leaves the context unchanged", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const messages: string[] = [];
+	const notifications: Array<{ message: string; type?: string }> = [];
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		sendUserMessage(message: string) { messages.push(message); },
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		hasUI: true,
+		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
+	};
+
+	handoffCompaction(pi);
+	const beforeCompact = handlers.get("session_before_compact");
+	assert.ok(beforeCompact);
+
+	const result = await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never);
+	assert.deepEqual(result, { cancel: true });
+	assert.equal(messages.length, 0);
+	assert.deepEqual(notifications, [{
+		message: "Handoff compaction failed before context replacement: the context overflowed before the handoff could begin. The conversation was not compacted.",
+		type: "error",
+	}]);
+});

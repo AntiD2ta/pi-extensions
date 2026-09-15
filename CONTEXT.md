@@ -22,6 +22,28 @@ _Avoid_: prompt, modal, dialog
 A literal `/skill:<name>` token in ordinary prompt text. Pi completes it but does not expand it; a skill invocation must begin the submitted input.
 _Avoid_: embedded command, inline command
 
+## Compaction handoff
+
+**Handoff compaction**:
+A same-session compaction that first asks the current agent to record its working state for the agent after compaction.
+_Avoid_: session handoff, session replacement
+
+**Compaction owner**:
+The extension with sole responsibility for coordinating manual and automatic compaction. Queue ownership remains separate.
+_Avoid_: compaction interceptor
+
+**Handoff document**:
+A temporary file that records the current agent's verified working state for use after handoff compaction. The OS owns its eventual cleanup.
+_Avoid_: compaction summary
+
+**Initial prompt**:
+The first user-authored message on the active session branch. A handoff document excludes hidden instructions and marks any sensitive values it redacts.
+_Avoid_: system prompt, session prompt
+
+**Continuation prompt**:
+The first user message after handoff compaction, directing the agent to read and follow the handoff document before queued instructions resume.
+_Avoid_: summary prompt, restart prompt
+
 ## Subagents
 
 **Subagent role**:

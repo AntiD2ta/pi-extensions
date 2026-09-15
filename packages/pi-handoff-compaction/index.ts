@@ -9,8 +9,11 @@ import { createHandoffPrompt } from "./handoff-prompt.ts";
 
 const handoffBoundaryEntryType = "handoff-compaction-boundary";
 const neutralCompactionSummary = "The prior task state was externalized. Follow the next user message.";
+const maximumAutomaticHandoffTokens = 275_000;
+type HandoffTrigger = "manual" | "threshold";
 type HandoffOperation = {
 	phase: "awaiting-cancellation" | "awaiting-settlement" | "awaiting-replacement";
+	trigger: HandoffTrigger;
 	handoffPath: string;
 	initialPrompt: string;
 	focus: string | undefined;
@@ -34,6 +37,13 @@ function validHandoff(handoffPath: string) {
 	}
 }
 
+function needsAutomaticHandoff(ctx: ExtensionContext) {
+	const usage = ctx.getContextUsage();
+	const contextWindow = ctx.model?.contextWindow;
+	if (usage?.tokens === null || usage === undefined || contextWindow === undefined) return false;
+	return usage.tokens >= Math.min(contextWindow * 0.9, maximumAutomaticHandoffTokens);
+}
+
 function initialPrompt(branchEntries: Array<{ type: string; message?: { role?: string; content?: unknown } }>) {
 	const message = branchEntries.find((entry) => entry.type === "message" && entry.message?.role === "user")?.message;
 	if (typeof message?.content === "string") return message.content;
@@ -48,6 +58,8 @@ function initialPrompt(branchEntries: Array<{ type: string; message?: { role?: s
 
 export default function handoffCompaction(pi: ExtensionAPI) {
 	let operation: HandoffOperation | undefined;
+	let automaticTriggerPending = false;
+	let automaticHandoffAttempted = false;
 
 	function reportHandoffFailure(ctx: ExtensionContext, reason: string) {
 		operation = undefined;
@@ -74,7 +86,16 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 			};
 		}
 		if (operation !== undefined) return { cancel: true };
-		if (event.reason !== "manual") return;
+		if (event.reason === "overflow") {
+			automaticTriggerPending = false;
+			automaticHandoffAttempted = true;
+			reportHandoffFailure(ctx, "the context overflowed before the handoff could begin");
+			return { cancel: true };
+		}
+		if (event.reason !== "manual" && event.reason !== "threshold") return;
+		if (event.reason === "threshold" && automaticHandoffAttempted) return { cancel: true };
+		automaticHandoffAttempted ||= event.reason === "threshold" || automaticTriggerPending;
+		automaticTriggerPending = false;
 		if (!pi.getActiveTools().includes("write")) {
 			reportHandoffFailure(ctx, writeToolFailureReason());
 			return { cancel: true };
@@ -82,6 +103,7 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 
 		operation = {
 			phase: "awaiting-cancellation",
+			trigger: event.reason,
 			handoffPath: join(tmpdir(), `pi-handoff-${randomUUID()}.md`),
 			initialPrompt: initialPrompt(event.branchEntries),
 			focus: event.customInstructions?.trim() || undefined,
@@ -93,7 +115,7 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_compact_failed", (event, ctx) => {
-		if (event.reason !== "manual" || operation?.phase !== "awaiting-cancellation") return;
+		if (operation?.phase !== "awaiting-cancellation" || event.reason !== operation.trigger) return;
 		if (!event.aborted) {
 			reportHandoffFailure(ctx, "the original compaction was not aborted");
 			return;
@@ -109,6 +131,18 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 		} catch {
 			reportHandoffFailure(ctx, "the handoff turn could not be started");
 		}
+	});
+
+	pi.on("turn_end", (_event, ctx) => {
+		if (operation !== undefined || automaticTriggerPending) return;
+		if (!needsAutomaticHandoff(ctx)) {
+			automaticHandoffAttempted = false;
+			return;
+		}
+		if (automaticHandoffAttempted) return;
+		automaticTriggerPending = true;
+		automaticHandoffAttempted = true;
+		ctx.compact();
 	});
 
 	pi.on("tool_result", (event) => {
