@@ -9,6 +9,9 @@
 - **Editor stash shortcut.** Changed the stash shortcut from `Alt+S` to `Cmd+B` and removed the retired sharp-S compatibility setting.
 - **Upstream sync.** Updated the source copy to `v0.17.1`.
 
+### Fixed
+- **Handoff compaction queue delivery** — Coordinate optional handoff compaction through Pi's event bus, keeping queued prompts held until its continuation turn settles and blocking them with the handoff failure reason (PI-59). Thanks to [@AntiD2ta](https://github.com/AntiD2ta).
+
 ## [0.17.1] - 2026-09-10
 
 ### Highlights

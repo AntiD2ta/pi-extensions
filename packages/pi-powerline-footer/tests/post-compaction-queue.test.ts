@@ -26,6 +26,20 @@ async function readinessHarness(t) {
   writeFileSync(join(root, "settings.json"), JSON.stringify({ powerline: { welcome: false } }));
   const { default: powerline } = await import("../index.ts");
   const handlers = new Map();
+  const coordinationHandlers = new Map<string, Set<(data: unknown) => void>>();
+  const emittedCoordinationEvents: Array<{ channel: string; data: unknown }> = [];
+  const events = {
+    on(channel: string, handler: (data: unknown) => void) {
+      const listeners = coordinationHandlers.get(channel) ?? new Set();
+      listeners.add(handler);
+      coordinationHandlers.set(channel, listeners);
+      return () => listeners.delete(handler);
+    },
+    emit(channel: string, data: unknown) {
+      emittedCoordinationEvents.push({ channel, data });
+      for (const handler of coordinationHandlers.get(channel) ?? []) handler(data);
+    },
+  };
   const sends: string[] = [];
   let idle = false;
   const ctx = {
@@ -35,7 +49,7 @@ async function readinessHarness(t) {
   };
   const emit = async (name, event = {}) => { await handlers.get(name)?.(event, ctx); };
   powerline({
-    on: (name, handler) => handlers.set(name, handler), registerCommand() {},
+    on: (name, handler) => handlers.set(name, handler), registerCommand() {}, events,
     sendUserMessage(text, options) {
       assert.equal(idle, true, "never send while busy");
       assert.equal(options, undefined, "never leave a late Pi follow-up");
@@ -55,7 +69,7 @@ async function readinessHarness(t) {
     else process.env.PI_CODING_AGENT_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   });
-  return { ctx, emit, store, item, sends, setIdle: () => { idle = true; }, tick: async () => { t.mock.timers.tick(1000); await setImmediate(); } };
+  return { ctx, emit, events, emittedCoordinationEvents, store, item, sends, setIdle: () => { idle = true; }, tick: async () => { t.mock.timers.tick(1000); await setImmediate(); } };
 }
 
 test("successful retry keeps readiness through busy settlement without inbox I/O", async (t) => {
@@ -95,6 +109,68 @@ test("successful retry keeps readiness through busy settlement without inbox I/O
   t.mock.method(h.ctx, "isIdle", () => assert.fail("no readiness polling after the last queued item"));
   await h.emit("agent_settled");
   await h.tick();
+});
+
+test("Powerline holds delivery until matching continuation release", async (t) => {
+  const h = await readinessHarness(t);
+  await h.emit("session_before_compact");
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  assert.deepEqual(h.emittedCoordinationEvents.at(-1), {
+    channel: "pi-handoff-compaction:v1",
+    data: { version: 1, kind: "acknowledged", sessionId: "readiness", orchestrationId: "handoff-1" },
+  });
+  await h.emit("session_compact_failed", { aborted: true });
+  await h.emit("session_compact", { willRetry: false });
+  h.setIdle();
+  await h.tick();
+  assert.deepEqual(h.sends, []);
+  assert.equal(h.store.get(h.item.id)?.status, "queued");
+
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "release", sessionId: "other-session", orchestrationId: "handoff-1",
+  });
+  await h.tick();
+  assert.deepEqual(h.sends, []);
+
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "release", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  await h.tick();
+  assert.deepEqual(h.sends, ["after retry"]);
+  assert.equal(h.store.get(h.item.id)?.status, "sent");
+
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  assert.equal(
+    h.emittedCoordinationEvents.filter((event) => (
+      event.channel === "pi-handoff-compaction:v1"
+      && typeof event.data === "object" && event.data !== null
+      && "kind" in event.data && event.data.kind === "acknowledged"
+    )).length,
+    1,
+  );
+});
+
+test("matching handoff failure blocks queued items without delivery", async (t) => {
+  const h = await readinessHarness(t);
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  await h.emit("session_compact_failed", { aborted: false, errorMessage: "Compaction cancelled" });
+  assert.equal(h.store.get(h.item.id)?.status, "queued");
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "failure", sessionId: "other-session", orchestrationId: "handoff-1", reason: "wrong session",
+  });
+  assert.equal(h.store.get(h.item.id)?.status, "queued");
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "failure", sessionId: "readiness", orchestrationId: "handoff-1", reason: "handoff failed",
+  });
+  assert.equal(h.store.get(h.item.id)?.status, "blocked");
+  assert.equal(h.store.get(h.item.id)?.error, "handoff failed");
+  assert.deepEqual(h.sends, []);
 });
 
 test("new compaction cancellation and session replacement retire pending readiness", async (t) => {

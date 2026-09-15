@@ -10,17 +10,22 @@ import { createHandoffPrompt } from "./handoff-prompt.ts";
 const handoffBoundaryEntryType = "handoff-compaction-boundary";
 const neutralCompactionSummary = "The prior task state was externalized. Follow the next user message.";
 const maximumAutomaticHandoffTokens = 275_000;
+const coordinationChannel = "pi-handoff-compaction:v1";
 type HandoffTrigger = "manual" | "threshold";
 type HandoffOperation = {
-	phase: "awaiting-cancellation" | "awaiting-settlement" | "awaiting-replacement";
+	phase: "awaiting-cancellation" | "awaiting-settlement" | "awaiting-replacement" | "awaiting-continuation" | "awaiting-continuation-settlement";
 	trigger: HandoffTrigger;
+	orchestrationId: string;
+	sessionId: string | undefined;
 	handoffPath: string;
 	initialPrompt: string;
 	focus: string | undefined;
 	writeSucceeded: boolean;
 	writeFailed: boolean;
 	handoffTurnAborted: boolean;
+	continuationTurnAborted: boolean;
 	boundaryId?: string;
+	continuationPrompt?: string;
 };
 
 function validHandoff(handoffPath: string) {
@@ -44,6 +49,11 @@ function needsAutomaticHandoff(ctx: ExtensionContext) {
 	return usage.tokens >= Math.min(contextWindow * 0.9, maximumAutomaticHandoffTokens);
 }
 
+function sessionId(ctx: ExtensionContext): string | undefined {
+	const id = ctx.sessionManager?.getSessionId?.();
+	return typeof id === "string" && id.trim() ? id : undefined;
+}
+
 function initialPrompt(branchEntries: Array<{ type: string; message?: { role?: string; content?: unknown } }>) {
 	const message = branchEntries.find((entry) => entry.type === "message" && entry.message?.role === "user")?.message;
 	if (typeof message?.content === "string") return message.content;
@@ -62,7 +72,17 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 	let automaticHandoffAttempted = false;
 
 	function reportHandoffFailure(ctx: ExtensionContext, reason: string) {
+		const failedOperation = operation;
 		operation = undefined;
+		if (failedOperation?.sessionId) {
+			pi.events?.emit(coordinationChannel, {
+				version: 1,
+				kind: "failure",
+				sessionId: failedOperation.sessionId,
+				orchestrationId: failedOperation.orchestrationId,
+				reason,
+			});
+		}
 		const message = `Handoff compaction failed before context replacement: ${reason}. The conversation was not compacted.`;
 		pi.appendEntry("handoff-compaction-failure", { reason });
 		if (ctx.hasUI) ctx.ui.notify(message, "error");
@@ -104,13 +124,24 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 		operation = {
 			phase: "awaiting-cancellation",
 			trigger: event.reason,
+			orchestrationId: randomUUID(),
+			sessionId: sessionId(ctx),
 			handoffPath: join(tmpdir(), `pi-handoff-${randomUUID()}.md`),
 			initialPrompt: initialPrompt(event.branchEntries),
 			focus: event.customInstructions?.trim() || undefined,
 			writeSucceeded: false,
 			writeFailed: false,
 			handoffTurnAborted: false,
+			continuationTurnAborted: false,
 		};
+		if (operation.sessionId) {
+			pi.events?.emit(coordinationChannel, {
+				version: 1,
+				kind: "hold",
+				sessionId: operation.sessionId,
+				orchestrationId: operation.orchestrationId,
+			});
+		}
 		return { cancel: true };
 	});
 
@@ -131,6 +162,11 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 		} catch {
 			reportHandoffFailure(ctx, "the handoff turn could not be started");
 		}
+	});
+
+	pi.on("before_agent_start", (event) => {
+		if (operation?.phase !== "awaiting-continuation" || event.prompt !== operation.continuationPrompt) return;
+		operation.phase = "awaiting-continuation-settlement";
 	});
 
 	pi.on("turn_end", (_event, ctx) => {
@@ -164,13 +200,31 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", (event) => {
-		if (operation?.phase !== "awaiting-settlement") return;
-		operation.handoffTurnAborted = event.messages.some((message) => (
+		if (operation?.phase !== "awaiting-settlement" && operation?.phase !== "awaiting-continuation-settlement") return;
+		const aborted = event.messages.some((message) => (
 			message.role === "assistant" && (message.stopReason === "aborted" || message.stopReason === "error")
 		));
+		if (operation.phase === "awaiting-settlement") operation.handoffTurnAborted = aborted;
+		else operation.continuationTurnAborted = aborted;
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {
+		if (operation?.phase === "awaiting-continuation-settlement") {
+			if (operation.continuationTurnAborted) {
+				reportHandoffFailure(ctx, "the continuation turn was aborted");
+				return;
+			}
+			if (operation.sessionId) {
+				pi.events?.emit(coordinationChannel, {
+					version: 1,
+					kind: "release",
+					sessionId: operation.sessionId,
+					orchestrationId: operation.orchestrationId,
+				});
+			}
+			operation = undefined;
+			return;
+		}
 		if (operation?.phase !== "awaiting-settlement") return;
 		if (operation.handoffTurnAborted) {
 			reportHandoffFailure(ctx, "the handoff turn was aborted");
@@ -198,8 +252,14 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 			ctx.compact({
 				onComplete: () => {
 					if (operation !== completedOperation) return;
-					operation = undefined;
-					pi.sendUserMessage(`Read and follow ${completedOperation.handoffPath}`);
+					const continuationPrompt = `Read and follow ${completedOperation.handoffPath}`;
+					operation.phase = "awaiting-continuation";
+					operation.continuationPrompt = continuationPrompt;
+					try {
+						pi.sendUserMessage(continuationPrompt);
+					} catch {
+						reportHandoffFailure(ctx, "the continuation prompt could not be started");
+					}
 				},
 				onError: () => {
 					if (operation === completedOperation) reportHandoffFailure(ctx, "the replacement compaction failed");

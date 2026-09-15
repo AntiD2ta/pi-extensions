@@ -9,6 +9,14 @@ function handoffDocument() {
 	return requiredHandoffHeadings.map((heading) => `## ${heading}\n\ncontent`).join("\n\n");
 }
 
+function orchestrationId(data: unknown): string {
+	if (typeof data !== "object" || data === null || !("orchestrationId" in data)) assert.fail("coordination event has no orchestration ID");
+	const id = data.orchestrationId;
+	assert.equal(typeof id, "string");
+	assert.ok(id.trim());
+	return id;
+}
+
 test("manual compaction writes a handoff before replacing context", async (t) => {
 	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
 	const messages: string[] = [];
@@ -742,4 +750,106 @@ test("provider overflow before handoff generation leaves the context unchanged",
 		message: "Handoff compaction failed before context replacement: the context overflowed before the handoff could begin. The conversation was not compacted.",
 		type: "error",
 	}]);
+});
+
+test("handoff holds Powerline until the continuation turn settles", async (t) => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const events: Array<{ channel: string; data: unknown }> = [];
+	const messages: string[] = [];
+	let handoffPath: string | undefined;
+	let compaction: { onComplete?: () => void } | undefined;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		sendUserMessage(message: string) { messages.push(message); },
+		appendEntry() {},
+		events: { emit(channel: string, data: unknown) { events.push({ channel, data }); } },
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		compact(options: { onComplete?: () => void }) { compaction = options; },
+		sessionManager: { getLeafId: () => "handoff-boundary", getSessionId: () => "session-1" },
+	};
+	t.after(() => { if (handoffPath) rmSync(handoffPath, { force: true }); });
+
+	handoffCompaction(pi);
+	const beforeCompact = handlers.get("session_before_compact");
+	const compactFailed = handlers.get("session_compact_failed");
+	const toolResult = handlers.get("tool_result");
+	const beforeAgentStart = handlers.get("before_agent_start");
+	const settled = handlers.get("agent_settled");
+	assert.ok(beforeCompact);
+	assert.ok(compactFailed);
+	assert.ok(toolResult);
+	assert.ok(beforeAgentStart);
+	assert.ok(settled);
+
+	await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+	assert.equal(events.length, 1);
+	assert.equal(events[0]?.channel, "pi-handoff-compaction:v1");
+	const holdOrchestrationId = orchestrationId(events[0]?.data);
+	assert.deepEqual(events[0]?.data, {
+		version: 1,
+		kind: "hold",
+		sessionId: "session-1",
+		orchestrationId: holdOrchestrationId,
+	});
+
+	await compactFailed({ reason: "manual", aborted: true } as never, ctx as never);
+	handoffPath = messages[0]?.match(/^.*\n\n## Handoff path\n\n(.+)$/m)?.[1];
+	assert.ok(handoffPath);
+	writeFileSync(handoffPath, handoffDocument());
+	await toolResult({ toolName: "write", input: { path: handoffPath }, isError: false } as never, ctx as never);
+	await settled({} as never, ctx as never);
+	compaction?.onComplete?.();
+	const continuation = `Read and follow ${handoffPath}`;
+	assert.equal(messages.at(-1), continuation);
+	assert.equal(events.length, 1);
+	await beforeAgentStart({ prompt: continuation } as never, ctx as never);
+	assert.equal(events.length, 1);
+	await settled({} as never, ctx as never);
+	assert.deepEqual(events[1], {
+		channel: "pi-handoff-compaction:v1",
+		data: {
+			version: 1,
+			kind: "release",
+			sessionId: "session-1",
+			orchestrationId: holdOrchestrationId,
+		},
+	});
+});
+
+test("handoff reports a failed orchestration to Powerline", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const events: Array<{ channel: string; data: unknown }> = [];
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+		events: { emit(channel: string, data: unknown) { events.push({ channel, data }); } },
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		hasUI: true,
+		ui: { notify() {} },
+		sessionManager: { getSessionId: () => "session-1" },
+	};
+
+	handoffCompaction(pi);
+	const beforeCompact = handlers.get("session_before_compact");
+	const compactFailed = handlers.get("session_compact_failed");
+	assert.ok(beforeCompact);
+	assert.ok(compactFailed);
+
+	await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+	const holdOrchestrationId = orchestrationId(events[0]?.data);
+	await compactFailed({ reason: "manual", aborted: false } as never, ctx as never);
+	assert.deepEqual(events[1], {
+		channel: "pi-handoff-compaction:v1",
+		data: {
+			version: 1,
+			kind: "failure",
+			sessionId: "session-1",
+			orchestrationId: holdOrchestrationId,
+			reason: "the original compaction was not aborted",
+		},
+	});
 });

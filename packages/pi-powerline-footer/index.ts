@@ -93,6 +93,7 @@ let config: PowerlineConfig = {
 };
 
 const CUSTOM_COMPACTION_STATUS_KEY = "compact-policy";
+const handoffCoordinationChannel = "pi-handoff-compaction:v1";
 let customCompactionEnabled = false;
 
 type ShortcutBinding = string | null;
@@ -383,6 +384,30 @@ function detectCustomCompactionEnabled(cwd: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type HandoffCoordinationEvent = {
+  version: 1;
+  kind: "hold" | "acknowledged" | "release" | "failure";
+  sessionId: string;
+  orchestrationId: string;
+  reason?: string;
+};
+
+function parseHandoffCoordinationEvent(value: unknown): HandoffCoordinationEvent | null {
+  if (!isRecord(value) || value.version !== 1
+    || (value.kind !== "hold" && value.kind !== "acknowledged" && value.kind !== "release" && value.kind !== "failure")
+    || typeof value.sessionId !== "string" || !value.sessionId.trim()
+    || typeof value.orchestrationId !== "string" || !value.orchestrationId.trim()) return null;
+  if (value.kind === "failure" && (typeof value.reason !== "string" || !value.reason.trim())) return null;
+
+  return {
+    version: 1,
+    kind: value.kind,
+    sessionId: value.sessionId,
+    orchestrationId: value.orchestrationId,
+    ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
+  };
 }
 
 function getStashHistoryPath(): string {
@@ -1234,6 +1259,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let postCompactionDelivery: { generation: number; context: QueueContext } | null = null;
   let queueDeliveryTimer: ReturnType<typeof setTimeout> | null = null;
   const pendingQueueDeliveries = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> }>();
+  let handoffHold: Pick<HandoffCoordinationEvent, "sessionId" | "orchestrationId"> | null = null;
+  const completedHandoffOrchestrations = new Set<string>();
+  let unsubscribeHandoffCoordination: (() => void) | null = null;
 
   // Cache for the top and secondary powerline widgets.
   let lastLayoutWidth = 0;
@@ -1615,6 +1643,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
   }
 
+  function isHandoffHeldFor(ctx: { sessionManager?: { getSessionId?: () => string } }): boolean {
+    return handoffHold?.sessionId === getQueueSessionId(ctx);
+  }
+
   function cancelPostCompactionDelivery(): void {
     if (queueDeliveryTimer) clearTimeout(queueDeliveryTimer);
     queueDeliveryTimer = null;
@@ -1622,7 +1654,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function schedulePostCompactionDelivery(): void {
-    if (!postCompactionDelivery) return;
+    if (!postCompactionDelivery || handoffHold) return;
     if (queueDeliveryTimer) clearTimeout(queueDeliveryTimer);
     const pending = postCompactionDelivery;
     queueDeliveryTimer = setTimeout(() => {
@@ -1752,6 +1784,45 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     if (updated) deliverQueueItem(ctx, updated);
   }
 
+  unsubscribeHandoffCoordination = pi.events?.on(handoffCoordinationChannel, (data) => {
+    const event = parseHandoffCoordinationEvent(data);
+    if (!event || !currentCtx || event.sessionId !== getQueueSessionId(currentCtx)) return;
+
+    if (event.kind === "hold") {
+      if (handoffHold || completedHandoffOrchestrations.has(event.orchestrationId)) return;
+      handoffHold = { sessionId: event.sessionId, orchestrationId: event.orchestrationId };
+      powerlineCompacting = true;
+      cancelPostCompactionDelivery();
+      pi.events?.emit(handoffCoordinationChannel, {
+        version: 1,
+        kind: "acknowledged",
+        sessionId: event.sessionId,
+        orchestrationId: event.orchestrationId,
+      });
+      requestQueueRender();
+      return;
+    }
+
+    if (!handoffHold || event.sessionId !== handoffHold.sessionId || event.orchestrationId !== handoffHold.orchestrationId) return;
+    if (event.kind === "release") {
+      completedHandoffOrchestrations.add(event.orchestrationId);
+      handoffHold = null;
+      powerlineCompacting = false;
+      const context = getQueueContext(currentCtx);
+      if (queueStore.queuedDeliveryItems(context, "post-compact").length > 0) {
+        postCompactionDelivery = { generation: sessionGeneration, context };
+      }
+      requestQueueRender();
+      schedulePostCompactionDelivery();
+      return;
+    }
+    if (event.kind === "failure") {
+      completedHandoffOrchestrations.add(event.orchestrationId);
+      handoffHold = null;
+      finishFailedCompaction(currentCtx, event.reason!);
+    }
+  }) ?? null;
+
   // Track session start
   pi.on("session_start", async (event, ctx) => {
     dismissWelcome(currentCtx ?? ctx);
@@ -1772,6 +1843,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     liveAssistantUsage = null;
     approximateContextUsage = event.reason === "reload" ? estimateUnknownContextUsage(ctx) : null;
     powerlineCompacting = false;
+    handoffHold = null;
+    completedHandoffOrchestrations.clear();
     cancelPostCompactionDelivery();
     stashedEditorText = null;
 
@@ -1818,6 +1891,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     sessionGeneration++;
     dismissWelcome(ctx);
     statusRenderScheduler.cancel();
+    unsubscribeHandoffCoordination?.();
+    unsubscribeHandoffCoordination = null;
     restoreFooterStatusRepaintHook?.();
     restoreFooterStatusRepaintHook = null;
     stashShortcutInputUnsubscribe?.();
@@ -1827,6 +1902,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     cancelPostCompactionDelivery();
     requeuePendingQueueDeliveries("Session ended before queued message started");
     powerlineCompacting = false;
+    handoffHold = null;
+    completedHandoffOrchestrations.clear();
     bashModeActive = false;
     currentCtx = null;
     footerDataRef = null;
@@ -1979,6 +2056,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     coreContextUsageCache.reset();
     compactionGeneration++;
     cancelPostCompactionDelivery();
+    if (isHandoffHeldFor(ctx)) {
+      powerlineCompacting = true;
+      requestQueueRender();
+      return;
+    }
+    powerlineCompacting = false;
     const context = getQueueContext(ctx);
     if (queueStore.queuedDeliveryItems(context, "post-compact").length > 0) {
       postCompactionDelivery = { generation: sessionGeneration, context };
@@ -1988,6 +2071,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   });
 
   pi.on("session_compact_failed", async (event, ctx) => {
+    currentCtx = ctx;
+    if (isHandoffHeldFor(ctx)) return;
     finishFailedCompaction(ctx, event.errorMessage ?? "Compaction cancelled");
   });
 
@@ -3220,13 +3305,16 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         if (powerlineCompacting && !bashModeActive && (isSubmit || isFollowUpSubmit)) {
           const text = editor.getExpandedText().trim();
           if (!text) return;
-          if (text.startsWith("/")) {
+          const compactQueuedPrompt = handoffHold && config.queue.compactPromptMode === "queue"
+            ? parseCompactQueuedPrompt(text)
+            : null;
+          if (text.startsWith("/") && !compactQueuedPrompt) {
             originalHandleInput(data);
             return;
           }
           editor.addToHistory?.(text);
           editor.setText("");
-          capturePostCompactPrompt(ctx, text);
+          capturePostCompactPrompt(ctx, compactQueuedPrompt ?? text);
           return;
         }
 
