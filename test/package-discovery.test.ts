@@ -142,3 +142,28 @@ test("empty package filters load no workspace extensions", async (t) => {
 
 	assert.deepEqual(enabledPaths, []);
 });
+
+test("handoff compaction and Powerline package filters are independent", async (t) => {
+	const fixture = createPackageFixture();
+	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
+	const handoff = join(repositoryRoot, "packages", "pi-handoff-compaction", "index.ts");
+	const powerline = join(repositoryRoot, "packages", "pi-powerline-footer", "index.ts");
+
+	for (const [name, extensions, expected] of [
+		["handoff only", ["packages/pi-handoff-compaction/index.ts"], [handoff]],
+		["Powerline only", ["packages/pi-powerline-footer/index.ts"], [powerline]],
+		["both", ["packages/pi-handoff-compaction/index.ts", "packages/pi-powerline-footer/index.ts"], [handoff, powerline]],
+		["neither", [], []],
+	] as const) {
+		writeFileSync(
+			join(fixture.agentDir, "settings.json"),
+			JSON.stringify({ packages: [{ source: repositoryRoot, extensions }] }),
+		);
+
+		assert.deepEqual(
+			await loadExtensionPaths(fixture.packageDir, fixture.agentDir),
+			expected,
+			name,
+		);
+	}
+});

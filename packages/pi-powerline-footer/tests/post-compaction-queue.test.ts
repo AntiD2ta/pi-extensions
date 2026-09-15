@@ -111,8 +111,9 @@ test("successful retry keeps readiness through busy settlement without inbox I/O
   await h.tick();
 });
 
-test("Powerline holds delivery until matching continuation release", async (t) => {
+test("Powerline releases held prompts in FIFO order after matching continuation release", async (t) => {
   const h = await readinessHarness(t);
+  const second = h.store.add({ ...h.item, text: "last queued prompt", now: h.item.createdAt + 1 });
   await h.emit("session_before_compact");
   h.events.emit("pi-handoff-compaction:v1", {
     version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
@@ -131,6 +132,9 @@ test("Powerline holds delivery until matching continuation release", async (t) =
   h.events.emit("pi-handoff-compaction:v1", {
     version: 1, kind: "release", sessionId: "other-session", orchestrationId: "handoff-1",
   });
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "release", sessionId: "readiness", orchestrationId: "stale-handoff",
+  });
   await h.tick();
   assert.deepEqual(h.sends, []);
 
@@ -140,6 +144,11 @@ test("Powerline holds delivery until matching continuation release", async (t) =
   await h.tick();
   assert.deepEqual(h.sends, ["after retry"]);
   assert.equal(h.store.get(h.item.id)?.status, "sent");
+  assert.equal(h.store.get(second.id)?.status, "queued");
+  h.setIdle();
+  await h.tick();
+  assert.deepEqual(h.sends, ["after retry", "last queued prompt"]);
+  assert.equal(h.store.get(second.id)?.status, "sent");
 
   h.events.emit("pi-handoff-compaction:v1", {
     version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",

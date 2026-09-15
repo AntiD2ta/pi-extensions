@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -15,8 +15,24 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import handoffCompaction from "../index.ts";
+import { requiredHandoffHeadings } from "../handoff-headings.ts";
 
 const handoffExtension: ExtensionFactory = handoffCompaction;
+
+function handoffDocument() {
+	return requiredHandoffHeadings.map((heading) => `## ${heading}\n\ncontent`).join("\n\n");
+}
+
+function messageText(content: unknown) {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((part): part is { type: "text"; text: string } => (
+			typeof part === "object" && part !== null && part.type === "text" && typeof part.text === "string"
+		))
+		.map((part) => part.text)
+		.join("\n");
+}
 
 for (const [mode, source] of [
 	["tui", "interactive"],
@@ -24,7 +40,7 @@ for (const [mode, source] of [
 	["json", "rpc"],
 	["print", "interactive"],
 ] as const) {
-	test(`handoff blocks ordinary ${mode} input through Pi's pipeline`, async (t) => {
+	test(`handoff compacts successfully and blocks ordinary ${mode} input through Pi's pipeline`, async (t) => {
 		const root = mkdtempSync(join(tmpdir(), "pi-handoff-input-"));
 		const agentDir = join(root, "agent");
 		mkdirSync(agentDir, { recursive: true });
@@ -34,7 +50,29 @@ for (const [mode, source] of [
 			provider: `pi-handoff-input-${mode}`,
 			models: [{ id: "test-model" }],
 		});
-		faux.setResponses([() => new Promise(() => {})]);
+		let handoffPath: string | undefined;
+		let resolveHandoff: ((message: ReturnType<typeof fauxAssistantMessage>) => void) | undefined;
+		let resolveHandoffStarted: (() => void) | undefined;
+		let resolveContinuationStarted: (() => void) | undefined;
+		const handoffStarted = new Promise<void>((resolve) => { resolveHandoffStarted = resolve; });
+		const continuationStarted = new Promise<void>((resolve) => { resolveContinuationStarted = resolve; });
+		const pendingHandoff = new Promise<ReturnType<typeof fauxAssistantMessage>>((resolve) => { resolveHandoff = resolve; });
+		faux.setResponses([
+			(context) => {
+				const path = messageText(context.messages.at(-1)?.content).match(/## Handoff path\n\n(.+)/)?.[1];
+				assert.ok(path);
+				handoffPath = path;
+				resolveHandoffStarted?.();
+				return pendingHandoff;
+			},
+			fauxAssistantMessage("Handoff complete."),
+			(context) => {
+				assert.ok(messageText(context.messages.at(-1)?.content).startsWith("Read and follow "));
+				resolveContinuationStarted?.();
+				return fauxAssistantMessage("Continuation complete.");
+			},
+			() => new Promise(() => {}),
+		]);
 		const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 } });
 		const modelRuntime = await ModelRuntime.create({
 			authPath: join(agentDir, "auth.json"),
@@ -88,6 +126,7 @@ for (const [mode, source] of [
 			...(mode === "tui" || mode === "rpc" ? { uiContext } : {}),
 		});
 		await assert.rejects(session.compact(), /Compaction cancelled/);
+		await handoffStarted;
 
 		await session.prompt("Do not enter the handoff turn.", { source });
 		assert.equal(
@@ -98,6 +137,28 @@ for (const [mode, source] of [
 		if (mode === "tui" || mode === "rpc") assert.deepEqual(notifications, [{ message, type: "error" }]);
 		else assert.deepEqual(errors, [message]);
 
+		assert.ok(resolveHandoff);
+		assert.ok(handoffPath);
+		let resolveCompaction: (() => void) | undefined;
+		const compacted = new Promise<void>((resolve) => { resolveCompaction = resolve; });
+		const unsubscribe = session.subscribe((event) => {
+			if (event.type === "compaction_end" && !event.aborted) resolveCompaction?.();
+		});
+		resolveHandoff(fauxAssistantMessage(
+			fauxToolCall("write", { path: handoffPath, content: handoffDocument() }),
+			{ stopReason: "toolUse" },
+		));
+		await compacted;
+		unsubscribe();
+		await continuationStarted;
+		await session.waitForIdle();
+		assert.match(readFileSync(handoffPath, "utf8"), /^## Goal and constraints/m);
+		const compactedContext = JSON.stringify(manager.buildSessionContext());
+		assert.ok(compactedContext.includes(`Read and follow ${handoffPath}`));
+		assert.doesNotMatch(compactedContext, /Earlier request/);
+		rmSync(handoffPath, { force: true });
+
+		await assert.rejects(session.compact(), /Compaction cancelled/);
 		await session.reload();
 		assert.equal(
 			manager.getEntries().some((entry) => (
