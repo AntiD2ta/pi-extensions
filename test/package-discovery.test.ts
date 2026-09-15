@@ -43,6 +43,10 @@ test("root manifest declares one entry per package and its themes", () => {
 	});
 });
 
+test("handoff compaction is a workspace package", () => {
+	assert.ok(rootManifest.workspaces.includes("packages/pi-handoff-compaction"));
+});
+
 test("pi-tool-display declares Pi 0.85 compatibility", () => {
 	assert.deepEqual(toolDisplayManifest.peerDependencies, {
 		"@earendil-works/pi-coding-agent": ">=0.85.0 <0.86.0",
