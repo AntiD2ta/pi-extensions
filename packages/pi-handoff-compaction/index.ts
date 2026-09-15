@@ -2,7 +2,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { isWriteToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isWriteToolResult, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { requiredHandoffHeadings } from "./handoff-headings.ts";
 import { createHandoffPrompt } from "./handoff-prompt.ts";
@@ -15,14 +15,20 @@ type HandoffOperation = {
 	initialPrompt: string;
 	focus: string | undefined;
 	writeSucceeded: boolean;
+	writeFailed: boolean;
+	handoffTurnAborted: boolean;
 	boundaryId?: string;
 };
 
 function validHandoff(handoffPath: string) {
 	try {
 		if (!lstatSync(handoffPath).isFile()) return false;
-		const content = readFileSync(handoffPath, "utf8");
-		return content.trim().length > 0 && requiredHandoffHeadings.every((heading) => new RegExp(`^## ${heading}$`, "m").test(content));
+		const content = readFileSync(handoffPath, "utf8").replaceAll("\r\n", "\n");
+		const headings = [...content.matchAll(/^## (.+)$/gm)];
+		return content.trim().length > 0
+			&& headings.length === requiredHandoffHeadings.length
+			&& headings.every((match, index) => match[1] === requiredHandoffHeadings[index]
+				&& content.slice((match.index ?? 0) + match[0].length, headings[index + 1]?.index).trim().length > 0);
 	} catch {
 		return false;
 	}
@@ -43,7 +49,21 @@ function initialPrompt(branchEntries: Array<{ type: string; message?: { role?: s
 export default function handoffCompaction(pi: ExtensionAPI) {
 	let operation: HandoffOperation | undefined;
 
-	pi.on("session_before_compact", (event) => {
+	function reportHandoffFailure(ctx: ExtensionContext, reason: string) {
+		operation = undefined;
+		const message = `Handoff compaction failed before context replacement: ${reason}. The conversation was not compacted.`;
+		pi.appendEntry("handoff-compaction-failure", { reason });
+		if (ctx.hasUI) ctx.ui.notify(message, "error");
+		else console.error(message);
+	}
+
+	function writeToolFailureReason() {
+		return pi.getAllTools().some((tool) => tool.name === "write")
+			? "the write tool is inactive"
+			: "the write tool is unavailable";
+	}
+
+	pi.on("session_before_compact", (event, ctx) => {
 		if (event.reason === "manual" && operation?.phase === "awaiting-replacement" && operation.boundaryId !== undefined) {
 			return {
 				compaction: {
@@ -53,7 +73,12 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 				},
 			};
 		}
-		if (event.reason !== "manual" || operation !== undefined) return;
+		if (operation !== undefined) return { cancel: true };
+		if (event.reason !== "manual") return;
+		if (!pi.getActiveTools().includes("write")) {
+			reportHandoffFailure(ctx, writeToolFailureReason());
+			return { cancel: true };
+		}
 
 		operation = {
 			phase: "awaiting-cancellation",
@@ -61,51 +86,93 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 			initialPrompt: initialPrompt(event.branchEntries),
 			focus: event.customInstructions?.trim() || undefined,
 			writeSucceeded: false,
+			writeFailed: false,
+			handoffTurnAborted: false,
 		};
 		return { cancel: true };
 	});
 
-	pi.on("session_compact_failed", (event) => {
+	pi.on("session_compact_failed", (event, ctx) => {
 		if (event.reason !== "manual" || operation?.phase !== "awaiting-cancellation") return;
+		if (!event.aborted) {
+			reportHandoffFailure(ctx, "the original compaction was not aborted");
+			return;
+		}
 		if (!pi.getActiveTools().includes("write")) {
-			operation = undefined;
+			reportHandoffFailure(ctx, writeToolFailureReason());
 			return;
 		}
 
 		operation.phase = "awaiting-settlement";
-		pi.sendUserMessage(createHandoffPrompt(operation));
+		try {
+			pi.sendUserMessage(createHandoffPrompt(operation));
+		} catch {
+			reportHandoffFailure(ctx, "the handoff turn could not be started");
+		}
 	});
 
 	pi.on("tool_result", (event) => {
 		if (operation?.phase !== "awaiting-settlement" || !isWriteToolResult(event)) return;
-		if (!event.isError && event.input.path === operation.handoffPath) operation.writeSucceeded = true;
+		if (event.isError || event.input.path !== operation.handoffPath) operation.writeFailed = true;
+		else operation.writeSucceeded = true;
+	});
+
+	pi.on("session_shutdown", (event, ctx) => {
+		if (operation === undefined) return;
+		const reason = {
+			quit: "the session was shut down",
+			reload: "the session was reloaded",
+			new: "the session was replaced",
+			resume: "the session was resumed",
+			fork: "the session was forked",
+		}[event.reason];
+		reportHandoffFailure(ctx, reason);
+	});
+
+	pi.on("agent_end", (event) => {
+		if (operation?.phase !== "awaiting-settlement") return;
+		operation.handoffTurnAborted = event.messages.some((message) => (
+			message.role === "assistant" && (message.stopReason === "aborted" || message.stopReason === "error")
+		));
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {
 		if (operation?.phase !== "awaiting-settlement") return;
-		if (!operation.writeSucceeded || !validHandoff(operation.handoffPath)) {
-			operation = undefined;
+		if (operation.handoffTurnAborted) {
+			reportHandoffFailure(ctx, "the handoff turn was aborted");
+			return;
+		}
+		if (operation.writeFailed || !operation.writeSucceeded) {
+			reportHandoffFailure(ctx, "the handoff file was not written successfully");
+			return;
+		}
+		if (!validHandoff(operation.handoffPath)) {
+			reportHandoffFailure(ctx, "the handoff file is invalid");
 			return;
 		}
 
 		pi.appendEntry(handoffBoundaryEntryType, { handoffPath: operation.handoffPath });
 		const boundaryId = ctx.sessionManager.getLeafId();
 		if (boundaryId === null) {
-			operation = undefined;
+			reportHandoffFailure(ctx, "the handoff boundary could not be recorded");
 			return;
 		}
 		operation.boundaryId = boundaryId;
 		operation.phase = "awaiting-replacement";
 		const completedOperation = operation;
-		ctx.compact({
-			onComplete: () => {
-				if (operation !== completedOperation) return;
-				operation = undefined;
-				pi.sendUserMessage(`Read and follow ${completedOperation.handoffPath}`);
-			},
-			onError: () => {
-				if (operation === completedOperation) operation = undefined;
-			},
-		});
+		try {
+			ctx.compact({
+				onComplete: () => {
+					if (operation !== completedOperation) return;
+					operation = undefined;
+					pi.sendUserMessage(`Read and follow ${completedOperation.handoffPath}`);
+				},
+				onError: () => {
+					if (operation === completedOperation) reportHandoffFailure(ctx, "the replacement compaction failed");
+				},
+			});
+		} catch {
+			reportHandoffFailure(ctx, "the replacement compaction could not be started");
+		}
 	});
 }
