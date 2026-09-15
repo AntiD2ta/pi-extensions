@@ -818,6 +818,52 @@ test("handoff holds Powerline until the continuation turn settles", async (t) =>
 	});
 });
 
+test("handoff rejects ordinary input while allowing extension-generated prompts", async () => {
+	for (const [mode, source] of [
+		["tui", "interactive"],
+		["rpc", "rpc"],
+		["json", "rpc"],
+		["print", "interactive"],
+	] as const) {
+		const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+		const notifications: Array<{ message: string; type?: string }> = [];
+		const errors: string[] = [];
+		const originalError = console.error;
+		console.error = (message: unknown) => { errors.push(String(message)); };
+		try {
+			const pi = {
+				on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+				getActiveTools: () => ["write"],
+				appendEntry() {},
+			} as unknown as ExtensionAPI;
+			const ctx = {
+				mode,
+				hasUI: mode === "tui" || mode === "rpc",
+				ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
+			};
+
+			handoffCompaction(pi);
+			const beforeCompact = handlers.get("session_before_compact");
+			const input = handlers.get("input");
+			assert.ok(beforeCompact, mode);
+			assert.ok(input, mode);
+			await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+
+			assert.deepEqual(await input({ source, text: "Do not interrupt the handoff." } as never, ctx as never), { action: "handled" }, mode);
+			assert.deepEqual(
+				await input({ source: "extension", text: "Read and follow /tmp/pi-handoff.md" } as never, ctx as never),
+				{ action: "continue" },
+				mode,
+			);
+			const message = "Handoff compaction is in progress. Wait for the continuation prompt to finish.";
+			if (ctx.hasUI) assert.deepEqual(notifications, [{ message, type: "error" }], mode);
+			else assert.deepEqual(errors, [message], mode);
+		} finally {
+			console.error = originalError;
+		}
+	}
+});
+
 test("handoff reports a failed orchestration to Powerline", async () => {
 	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
 	const events: Array<{ channel: string; data: unknown }> = [];

@@ -187,6 +187,14 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 		else operation.writeSucceeded = true;
 	});
 
+	pi.on("input", (event, ctx) => {
+		if (operation === undefined || event.source === "extension") return { action: "continue" };
+		const message = "Handoff compaction is in progress. Wait for the continuation prompt to finish.";
+		if (ctx.hasUI) ctx.ui.notify(message, "error");
+		else console.error(message);
+		return { action: "handled" };
+	});
+
 	pi.on("session_shutdown", (event, ctx) => {
 		if (operation === undefined) return;
 		const reason = {

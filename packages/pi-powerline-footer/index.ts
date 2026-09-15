@@ -3309,6 +3309,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
             ? parseCompactQueuedPrompt(text)
             : null;
           if (text.startsWith("/") && !compactQueuedPrompt) {
+            if (handoffHold && !/^\/(?:clone|fork|new|quit|reload|resume)(?:\s|$)/.test(text)) {
+              ctx.ui.notify("Handoff compaction is in progress. Wait for the continuation prompt to finish.", "error");
+              return;
+            }
             originalHandleInput(data);
             return;
           }
