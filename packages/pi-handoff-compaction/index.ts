@@ -71,6 +71,7 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 	let operation: HandoffOperation | undefined;
 	let automaticTriggerPending = false;
 	let automaticHandoffAttempted = false;
+	let automaticAttemptId = 0;
 
 	pi.events?.on?.(coordinationChannel, (event) => {
 		if (typeof event !== "object" || event === null
@@ -118,13 +119,13 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 				},
 			};
 		}
-		if (operation !== undefined) return { cancel: true };
 		if (event.reason === "overflow") {
 			automaticTriggerPending = false;
 			automaticHandoffAttempted = true;
 			reportHandoffFailure(ctx, "the context overflowed before the handoff could begin");
 			return { cancel: true };
 		}
+		if (operation !== undefined) return { cancel: true };
 		if (event.reason !== "manual" && event.reason !== "threshold") return;
 		if (event.reason === "threshold" && automaticHandoffAttempted) return { cancel: true };
 		automaticHandoffAttempted ||= event.reason === "threshold" || automaticTriggerPending;
@@ -192,7 +193,20 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 		if (automaticHandoffAttempted) return;
 		automaticTriggerPending = true;
 		automaticHandoffAttempted = true;
-		ctx.compact();
+		const attemptId = ++automaticAttemptId;
+		try {
+			ctx.compact({
+				onError: () => {
+					if (!automaticTriggerPending || attemptId !== automaticAttemptId) return;
+					automaticTriggerPending = false;
+					reportHandoffFailure(ctx, "the automatic compaction could not be started");
+				},
+			});
+		} catch {
+			if (!automaticTriggerPending || attemptId !== automaticAttemptId) return;
+			automaticTriggerPending = false;
+			reportHandoffFailure(ctx, "the automatic compaction could not be started");
+		}
 	});
 
 	pi.on("tool_result", (event) => {

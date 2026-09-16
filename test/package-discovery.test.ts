@@ -11,6 +11,9 @@ const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"
 const toolDisplayManifest = JSON.parse(
 	readFileSync(join(repositoryRoot, "packages", "pi-tool-display", "package.json"), "utf8"),
 );
+const handoffManifest = JSON.parse(
+	readFileSync(join(repositoryRoot, "packages", "pi-handoff-compaction", "package.json"), "utf8"),
+);
 
 function createPackageFixture() {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-extensions-test-"));
@@ -45,6 +48,10 @@ test("root manifest declares one entry per package and its themes", () => {
 
 test("handoff compaction is a workspace package", () => {
 	assert.ok(rootManifest.workspaces.includes("packages/pi-handoff-compaction"));
+});
+
+test("handoff compaction requires Pi 0.84.3 for compaction failure events", () => {
+	assert.equal(handoffManifest.peerDependencies["@earendil-works/pi-coding-agent"], ">=0.84.3 <0.85.0");
 });
 
 test("pi-tool-display declares Pi 0.85 compatibility", () => {

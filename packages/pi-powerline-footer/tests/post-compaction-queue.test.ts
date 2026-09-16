@@ -188,6 +188,19 @@ test("matching handoff failure blocks queued items without delivery", async (t) 
   assert.deepEqual(h.sends, []);
 });
 
+test("session shutdown blocks held handoff items before removing coordination", async (t) => {
+  const h = await readinessHarness(t);
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+
+  await h.emit("session_shutdown", { reason: "reload" });
+
+  assert.equal(h.store.get(h.item.id)?.status, "blocked");
+  assert.equal(h.store.get(h.item.id)?.error, "the session was reloaded");
+  assert.deepEqual(h.sends, []);
+});
+
 test("new compaction cancellation and session replacement retire pending readiness", async (t) => {
   const h = await readinessHarness(t);
   await h.emit("session_before_compact");

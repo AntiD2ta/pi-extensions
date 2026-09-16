@@ -1896,10 +1896,20 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   });
 
-  pi.on("session_shutdown", async (_event, ctx) => {
+  pi.on("session_shutdown", async (event, ctx) => {
     sessionGeneration++;
     dismissWelcome(ctx);
     statusRenderScheduler.cancel();
+    if (isHandoffHeldFor(ctx)) {
+      const reason = {
+        quit: "the session was shut down",
+        reload: "the session was reloaded",
+        new: "the session was replaced",
+        resume: "the session was resumed",
+        fork: "the session was forked",
+      }[event.reason] ?? "the session ended";
+      blockPostCompactionQueue(ctx, reason);
+    }
     unsubscribeHandoffCoordination?.();
     unsubscribeHandoffCoordination = null;
     restoreFooterStatusRepaintHook?.();

@@ -357,7 +357,6 @@ test("handoff compaction blocks competing compactions while generation is pendin
 
 	assert.deepEqual(await beforeCompact({ reason: "manual", branchEntries: [] } as never, {} as never), { cancel: true });
 	assert.deepEqual(await beforeCompact({ reason: "threshold", branchEntries: [] } as never, {} as never), { cancel: true });
-	assert.deepEqual(await beforeCompact({ reason: "overflow", branchEntries: [] } as never, {} as never), { cancel: true });
 });
 
 test("handoff compaction reports an inactive write tool before generation", async () => {
@@ -493,6 +492,77 @@ test("automatic threshold starts one handoff at 90 percent of the active context
 	await turnEnd({} as never, ctx as never);
 	assert.equal(compactCalls, 1);
 	assert.equal(messages.length, 0);
+});
+
+test("automatic handoff reports a compaction setup failure once", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const notifications: Array<{ message: string; type?: string }> = [];
+	let compactCalls = 0;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 200_000 },
+		getContextUsage: () => ({ tokens: 180_000, contextWindow: 200_000, percent: 90 }),
+		hasUI: true,
+		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
+		compact(options?: { onError?: (error: Error) => void }) {
+			compactCalls++;
+			options?.onError?.(new Error("automatic compaction could not start"));
+		},
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	assert.ok(turnEnd);
+
+	await turnEnd({} as never, ctx as never);
+	await turnEnd({} as never, ctx as never);
+
+	assert.equal(compactCalls, 1);
+	assert.deepEqual(notifications, [{
+		message: "Handoff compaction failed before context replacement: the automatic compaction could not be started. The conversation was not compacted.",
+		type: "error",
+	}]);
+});
+
+test("stale automatic compaction errors do not fail a later attempt", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const notifications: Array<{ message: string; type?: string }> = [];
+	const onErrors: Array<(error: Error) => void> = [];
+	let tokens = 180_000;
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		model: { contextWindow: 200_000 },
+		getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: (tokens / 200_000) * 100 }),
+		hasUI: true,
+		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
+		compact(options?: { onError?: (error: Error) => void }) {
+			assert.ok(options?.onError);
+			onErrors.push(options.onError);
+		},
+	};
+
+	handoffCompaction(pi);
+	const turnEnd = handlers.get("turn_end");
+	assert.ok(turnEnd);
+
+	await turnEnd({} as never, ctx as never);
+	onErrors[0]?.(new Error("first failure"));
+	tokens = 0;
+	await turnEnd({} as never, ctx as never);
+	tokens = 180_000;
+	await turnEnd({} as never, ctx as never);
+	onErrors[0]?.(new Error("stale first failure"));
+
+	assert.equal(onErrors.length, 2);
+	assert.equal(notifications.length, 1);
 });
 
 test("automatic threshold uses 90 percent for small context windows", async () => {
@@ -746,6 +816,33 @@ test("provider overflow before handoff generation leaves the context unchanged",
 	const result = await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never);
 	assert.deepEqual(result, { cancel: true });
 	assert.equal(messages.length, 0);
+	assert.deepEqual(notifications, [{
+		message: "Handoff compaction failed before context replacement: the context overflowed before the handoff could begin. The conversation was not compacted.",
+		type: "error",
+	}]);
+});
+
+test("provider overflow during handoff generation fails the active orchestration", async () => {
+	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+	const notifications: Array<{ message: string; type?: string }> = [];
+	const pi = {
+		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+		getActiveTools: () => ["write"],
+		appendEntry() {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		hasUI: true,
+		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
+	};
+
+	handoffCompaction(pi);
+	const beforeCompact = handlers.get("session_before_compact");
+	assert.ok(beforeCompact);
+
+	await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+	const result = await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never);
+
+	assert.deepEqual(result, { cancel: true });
 	assert.deepEqual(notifications, [{
 		message: "Handoff compaction failed before context replacement: the context overflowed before the handoff could begin. The conversation was not compacted.",
 		type: "error",
