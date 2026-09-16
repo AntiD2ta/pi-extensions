@@ -11,6 +11,9 @@ const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"
 const toolDisplayManifest = JSON.parse(
 	readFileSync(join(repositoryRoot, "packages", "pi-tool-display", "package.json"), "utf8"),
 );
+const handoffManifest = JSON.parse(
+	readFileSync(join(repositoryRoot, "packages", "pi-handoff-compaction", "package.json"), "utf8"),
+);
 
 function createPackageFixture() {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-extensions-test-"));
@@ -41,6 +44,14 @@ test("root manifest declares one entry per package and its themes", () => {
 		extensions: ["packages/*/index.ts"],
 		themes: ["packages/*/themes/*.json"],
 	});
+});
+
+test("handoff compaction is a workspace package", () => {
+	assert.ok(rootManifest.workspaces.includes("packages/pi-handoff-compaction"));
+});
+
+test("handoff compaction requires Pi 0.84.3 for compaction failure events", () => {
+	assert.equal(handoffManifest.peerDependencies["@earendil-works/pi-coding-agent"], ">=0.84.3 <0.85.0");
 });
 
 test("pi-tool-display declares Pi 0.85 compatibility", () => {
@@ -158,4 +169,29 @@ test("empty package filters load no workspace extensions", async (t) => {
 	const enabledPaths = await loadExtensionPaths(fixture.packageDir, fixture.agentDir);
 
 	assert.deepEqual(enabledPaths, []);
+});
+
+test("handoff compaction and Powerline package filters are independent", async (t) => {
+	const fixture = createPackageFixture();
+	t.after(() => rmSync(fixture.tempDir, { recursive: true, force: true }));
+	const handoff = join(repositoryRoot, "packages", "pi-handoff-compaction", "index.ts");
+	const powerline = join(repositoryRoot, "packages", "pi-powerline-footer", "index.ts");
+
+	for (const [name, extensions, expected] of [
+		["handoff only", ["packages/pi-handoff-compaction/index.ts"], [handoff]],
+		["Powerline only", ["packages/pi-powerline-footer/index.ts"], [powerline]],
+		["both", ["packages/pi-handoff-compaction/index.ts", "packages/pi-powerline-footer/index.ts"], [handoff, powerline]],
+		["neither", [], []],
+	] as const) {
+		writeFileSync(
+			join(fixture.agentDir, "settings.json"),
+			JSON.stringify({ packages: [{ source: repositoryRoot, extensions }] }),
+		);
+
+		assert.deepEqual(
+			await loadExtensionPaths(fixture.packageDir, fixture.agentDir),
+			expected,
+			name,
+		);
+	}
 });

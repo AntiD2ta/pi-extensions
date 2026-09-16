@@ -26,6 +26,20 @@ async function readinessHarness(t) {
   writeFileSync(join(root, "settings.json"), JSON.stringify({ powerline: { welcome: false } }));
   const { default: powerline } = await import("../index.ts");
   const handlers = new Map();
+  const coordinationHandlers = new Map<string, Set<(data: unknown) => void>>();
+  const emittedCoordinationEvents: Array<{ channel: string; data: unknown }> = [];
+  const events = {
+    on(channel: string, handler: (data: unknown) => void) {
+      const listeners = coordinationHandlers.get(channel) ?? new Set();
+      listeners.add(handler);
+      coordinationHandlers.set(channel, listeners);
+      return () => listeners.delete(handler);
+    },
+    emit(channel: string, data: unknown) {
+      emittedCoordinationEvents.push({ channel, data });
+      for (const handler of coordinationHandlers.get(channel) ?? []) handler(data);
+    },
+  };
   const sends: string[] = [];
   let idle = false;
   const ctx = {
@@ -35,7 +49,7 @@ async function readinessHarness(t) {
   };
   const emit = async (name, event = {}) => { await handlers.get(name)?.(event, ctx); };
   powerline({
-    on: (name, handler) => handlers.set(name, handler), registerCommand() {},
+    on: (name, handler) => handlers.set(name, handler), registerCommand() {}, events,
     sendUserMessage(text, options) {
       assert.equal(idle, true, "never send while busy");
       assert.equal(options, undefined, "never leave a late Pi follow-up");
@@ -55,7 +69,7 @@ async function readinessHarness(t) {
     else process.env.PI_CODING_AGENT_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   });
-  return { ctx, emit, store, item, sends, setIdle: () => { idle = true; }, tick: async () => { t.mock.timers.tick(1000); await setImmediate(); } };
+  return { ctx, emit, events, emittedCoordinationEvents, store, item, sends, setIdle: () => { idle = true; }, tick: async () => { t.mock.timers.tick(1000); await setImmediate(); } };
 }
 
 test("successful retry keeps readiness through busy settlement without inbox I/O", async (t) => {
@@ -97,6 +111,96 @@ test("successful retry keeps readiness through busy settlement without inbox I/O
   await h.tick();
 });
 
+test("Powerline releases held prompts in FIFO order after matching continuation release", async (t) => {
+  const h = await readinessHarness(t);
+  const second = h.store.add({ ...h.item, text: "last queued prompt", now: h.item.createdAt + 1 });
+  await h.emit("session_before_compact");
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  assert.deepEqual(h.emittedCoordinationEvents.at(-1), {
+    channel: "pi-handoff-compaction:v1",
+    data: {
+      version: 1,
+      kind: "acknowledged",
+      sessionId: "readiness",
+      orchestrationId: "handoff-1",
+      capturesInput: true,
+    },
+  });
+  await h.emit("session_compact_failed", { aborted: true });
+  await h.emit("session_compact", { willRetry: false });
+  h.setIdle();
+  await h.tick();
+  assert.deepEqual(h.sends, []);
+  assert.equal(h.store.get(h.item.id)?.status, "queued");
+
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "release", sessionId: "other-session", orchestrationId: "handoff-1",
+  });
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "release", sessionId: "readiness", orchestrationId: "stale-handoff",
+  });
+  await h.tick();
+  assert.deepEqual(h.sends, []);
+
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "release", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  await h.tick();
+  assert.deepEqual(h.sends, ["after retry"]);
+  assert.equal(h.store.get(h.item.id)?.status, "sent");
+  assert.equal(h.store.get(second.id)?.status, "queued");
+  h.setIdle();
+  await h.tick();
+  assert.deepEqual(h.sends, ["after retry", "last queued prompt"]);
+  assert.equal(h.store.get(second.id)?.status, "sent");
+
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  assert.equal(
+    h.emittedCoordinationEvents.filter((event) => (
+      event.channel === "pi-handoff-compaction:v1"
+      && typeof event.data === "object" && event.data !== null
+      && "kind" in event.data && event.data.kind === "acknowledged"
+    )).length,
+    1,
+  );
+});
+
+test("matching handoff failure blocks queued items without delivery", async (t) => {
+  const h = await readinessHarness(t);
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+  await h.emit("session_compact_failed", { aborted: false, errorMessage: "Compaction cancelled" });
+  assert.equal(h.store.get(h.item.id)?.status, "queued");
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "failure", sessionId: "other-session", orchestrationId: "handoff-1", reason: "wrong session",
+  });
+  assert.equal(h.store.get(h.item.id)?.status, "queued");
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "failure", sessionId: "readiness", orchestrationId: "handoff-1", reason: "handoff failed",
+  });
+  assert.equal(h.store.get(h.item.id)?.status, "blocked");
+  assert.equal(h.store.get(h.item.id)?.error, "handoff failed");
+  assert.deepEqual(h.sends, []);
+});
+
+test("session shutdown blocks held handoff items before removing coordination", async (t) => {
+  const h = await readinessHarness(t);
+  h.events.emit("pi-handoff-compaction:v1", {
+    version: 1, kind: "hold", sessionId: "readiness", orchestrationId: "handoff-1",
+  });
+
+  await h.emit("session_shutdown", { reason: "reload" });
+
+  assert.equal(h.store.get(h.item.id)?.status, "blocked");
+  assert.equal(h.store.get(h.item.id)?.error, "the session was reloaded");
+  assert.deepEqual(h.sends, []);
+});
+
 test("new compaction cancellation and session replacement retire pending readiness", async (t) => {
   const h = await readinessHarness(t);
   await h.emit("session_before_compact");
@@ -132,13 +236,19 @@ test("reload -> editor /compact -> captured prompt starts after delayed manual c
   const finishDispatch = deferred();
   const completed = deferred();
   const starts: string[] = [];
+  const notifications: Array<{ message: string; type?: string }> = [];
   let settlements = 0;
   let editor;
+  let emitHandoffEvent: ((kind: "hold" | "release") => void) | undefined;
+  let sessionId = "";
   const settingsManager = sdk.SettingsManager.create(root, root);
   const loader = new sdk.DefaultResourceLoader({
     cwd: root, agentDir: root, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     extensionFactories: [powerline, (pi) => {
+      emitHandoffEvent = (kind) => pi.events?.emit("pi-handoff-compaction:v1", {
+        version: 1, kind, sessionId, orchestrationId: "handoff-1",
+      });
       pi.on("session_before_compact", async (event) => {
         before.resolve();
         await summarize.promise;
@@ -156,6 +266,7 @@ test("reload -> editor /compact -> captured prompt starts after delayed manual c
   try {
     await loader.reload();
     const manager = sdk.SessionManager.inMemory(root);
+    sessionId = manager.getSessionId();
     manager.appendMessage({ role: "user", content: "Earlier request", timestamp: Date.now() });
     manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Earlier answer" }], api: "openai-completions", provider: "test", model: "test", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() });
     manager.appendMessage({ role: "user", content: "Latest request", timestamp: Date.now() });
@@ -174,7 +285,7 @@ test("reload -> editor /compact -> captured prompt starts after delayed manual c
       setEditorComponent(factory) { if (factory) editor = factory(tui, theme, KeybindingsManager.create(root)); },
       getEditorComponent: () => undefined,
       onTerminalInput: () => () => {},
-      setStatus() {}, notify(message) { t.diagnostic(message); }, setWorkingMessage() {}, setWidget() {}, setFooter() {}, setHeader() {},
+      setStatus() {}, notify(message, type) { notifications.push({ message, type }); t.diagnostic(message); }, setWorkingMessage() {}, setWidget() {}, setFooter() {}, setHeader() {},
       custom: async () => undefined, select: async () => undefined,
     }, { get: (target, key) => key in target ? target[key] : () => {} });
     await session.bindExtensions({ uiContext: ui, onError: (error) => { throw new Error(JSON.stringify(error)); } });
@@ -185,11 +296,25 @@ test("reload -> editor /compact -> captured prompt starts after delayed manual c
     editor.setText("/compact");
     editor.handleInput("\r");
     await before.promise;
+    assert.ok(emitHandoffEvent, "handoff event publisher is installed");
+    emitHandoffEvent("hold");
     editor.setText("run after manual compaction");
     editor.handleInput("\r");
     const store = new PowerlineQueueStore(join(root, "powerline-footer", "inbox.jsonl"), join(root, "powerline-footer", "projects.json"));
     const context = { cwd: root, sessionId: manager.getSessionId() };
     assert.equal(store.queuedDeliveryItems(context, "post-compact").length, 1);
+    editor.setText("/model");
+    editor.handleInput("\r");
+    assert.equal(editor.getExpandedText(), "/model", "held slash commands stay in the editor");
+    assert.equal(store.queuedDeliveryItems(context, "post-compact").length, 1, "held slash commands are not queued");
+    assert.deepEqual(notifications.at(-1), {
+      message: "Handoff compaction is in progress. Wait for the continuation prompt to finish.",
+      type: "error",
+    });
+    editor.setText("/new");
+    editor.handleInput("\r");
+    assert.equal(editor.getExpandedText(), "", "held session commands pass through to Pi");
+    editor.setText("");
     summarize.resolve();
     await dispatched.promise;
     t.diagnostic(`during dispatch: idle=${session.isIdle}, queued=${store.queuedDeliveryItems(context, "post-compact").length}, pending=${session.pendingMessageCount}`);
@@ -207,6 +332,10 @@ test("reload -> editor /compact -> captured prompt starts after delayed manual c
     await completed.promise;
     assert.equal(session.isIdle, true);
     if (busyDispatch) assert.equal(settlements, 0, "manual completion provides no agent_settled wakeup");
+    t.mock.timers.tick(1000);
+    await setImmediate();
+    assert.deepEqual(starts, [], "held queue must wait for continuation release");
+    emitHandoffEvent("release");
     t.mock.timers.tick(1000);
     await setImmediate();
     t.diagnostic(`after completion: idle=${session.isIdle}, status=${store.list()[0]?.status}, pending=${session.pendingMessageCount}, starts=${starts.length}, settlements=${settlements}`);
