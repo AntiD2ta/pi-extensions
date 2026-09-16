@@ -133,11 +133,12 @@ function runGit(args: string[], cwd: string, timeoutMs = 200): Promise<string | 
 
     let stdout = "";
     let resolved = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const finish = (result: string | null) => {
       if (resolved) return;
       resolved = true;
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       resolve(result);
     };
 
@@ -153,10 +154,14 @@ function runGit(args: string[], cwd: string, timeoutMs = 200): Promise<string | 
       finish(null);
     });
 
-    const timeoutId = setTimeout(() => {
-      proc.kill();
-      finish(null);
-    }, timeoutMs);
+    // Process creation can be delayed by the OS. Limit execution only after
+    // the child has started, so a delayed start does not consume its deadline.
+    proc.once("spawn", () => {
+      timeoutId = setTimeout(() => {
+        proc.kill();
+        finish(null);
+      }, timeoutMs);
+    });
   });
 }
 

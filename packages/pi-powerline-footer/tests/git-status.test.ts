@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import childProcess, { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
+import { syncBuiltinESMExports } from "node:module";
 import { detectGitHost, getCurrentBranch, getGitRemoteHost, getGitStatus, invalidateGitBranch, invalidateGitStatus, subscribeGitUpdates, waitForGitUpdates } from "../git-status.ts";
 
 function fixture(t: test.TestContext) {
@@ -41,6 +43,33 @@ test("status refresh preserves dirty coloring data until new counts arrive", asy
   await waitForGitUpdates();
   assert.deepEqual(getGitStatus("main", "full", cwd), { branch: "main", staged: 1, unstaged: 1, untracked: 1 });
   assert.deepEqual(getGitStatus("main", "branch", cwd), { branch: "main", staged: 0, unstaged: 0, untracked: 0 });
+});
+
+test("status refresh tolerates process-start delay before its execution deadline", async (t) => {
+  const { repo } = fixture(t);
+  const cwd = repo("main", "github.com");
+  const spawn = childProcess.spawn;
+  t.mock.method(childProcess, "spawn", () => {
+    const proc = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      kill: () => true,
+    }) as ReturnType<typeof spawn>;
+    setTimeout(() => {
+      proc.emit("spawn");
+      proc.stdout.emit("data", "?? delayed\n");
+      proc.emit("close", 0);
+    }, 1010);
+    return proc;
+  });
+  syncBuiltinESMExports();
+  try {
+    getGitStatus(null, "full", cwd);
+    await waitForGitUpdates();
+    assert.equal(getGitStatus(null, "full", cwd).untracked, 1);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test("unchanged git refreshes settle without requesting another render", async (t) => {

@@ -12,9 +12,27 @@ _Avoid_: mode, phase
 A replace-in-place, one-line display above Pi’s editor that names the current non-running agent state. It is absent while the agent is Running.
 _Avoid_: notification, banner
 
+**Status timestamp**:
+The machine-local wall-clock time and calendar date captured when the status widget enters a visible agent state. It remains fixed until the state changes.
+_Avoid_: machine available time, live clock, uptime
+
 **Input request**:
 An unresolved request for a user's free-text decision, created by the `request_user_input` tool. Its tool result records the request, and a later resolution entry records the next interactive-editor response.
 _Avoid_: prompt, modal, dialog
+
+## Extension coexistence
+
+**Footer owner**:
+The one extension that renders Pi's footer. `pi-powerline-footer` is the footer owner.
+_Avoid_: footer contributor, shared footer
+
+**Queue owner**:
+The one extension that stores and delivers queued prompts. `pi-powerline-footer` is the queue owner.
+_Avoid_: queue helper, queue integration
+
+**Coexistence**:
+The ADR-0005 rule that supported extensions own disjoint UI surfaces, load independently, and do not read or write each other's settings, storage, or private state. `pi-visual-profile` owns non-footer presentation; Pi owns theme selection.
+_Avoid_: replacement, fallback owner
 
 ## Skill invocation
 
@@ -43,6 +61,20 @@ _Avoid_: system prompt, session prompt
 **Continuation prompt**:
 The first user message after handoff compaction, directing the agent to read and follow the handoff document before queued instructions resume.
 _Avoid_: summary prompt, restart prompt
+
+## Review orchestration
+
+**Review intake**:
+The parent-session step that turns a user's natural-language review request into one validated, structured review request. It asks the user only for decisions that repository inspection cannot resolve safely.
+_Avoid_: target parsing, review prompt
+
+**Review request**:
+The structured input that fixes the review type, target, repair mode, driver, artifact scope, and optional instructions before a review run starts.
+_Avoid_: review command, prompt
+
+**Review driver**:
+A registered code or documentation review procedure that follows the review result protocol. A driver cannot choose its own model, tools, extensions, or repair permissions.
+_Avoid_: reviewer, command, arbitrary skill
 
 ## Subagents
 

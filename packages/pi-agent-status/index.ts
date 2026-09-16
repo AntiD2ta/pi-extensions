@@ -29,16 +29,22 @@ function renderState(ctx: ExtensionContext, state: AgentState) {
 		ctx.ui.setWidget("agent-status", undefined);
 		return;
 	}
+	const now = new Date();
+	const pad = (value: number) => String(value).padStart(2, "0");
+	const timestamp = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+		+ ` -- ${pad(now.getDate())}:${pad(now.getMonth() + 1)}:${String(now.getFullYear()).padStart(4, "0")}`;
 	const label = ctx.ui.theme.fg(widgetColor(state), state);
-	ctx.ui.setWidget("agent-status", [state === "Needs input" ? ctx.ui.theme.bg("toolPendingBg", label) : label]);
+	const line = label + ctx.ui.theme.fg("muted", ` · ${timestamp}`);
+	ctx.ui.setWidget("agent-status", [state === "Needs input" ? ctx.ui.theme.bg("toolPendingBg", line) : line]);
 }
 
 export default function (pi: ExtensionAPI) {
 	const inputState = createUnresolvedInputState(pi);
-	let presentationState: AgentState = "Ready";
+	let presentationState: AgentState | undefined;
 	let latestStopReason: StopReason | undefined;
 
 	const setPresentationState = (ctx: ExtensionContext, next: AgentState) => {
+		if (presentationState === next) return;
 		presentationState = next;
 		renderState(ctx, presentationState);
 	};
@@ -84,6 +90,7 @@ export default function (pi: ExtensionAPI) {
 				setPresentationState(ctx, "Ready");
 			}
 		});
+		presentationState = undefined;
 		setPresentationState(ctx, inputState.isUnresolved() ? "Needs input" : "Ready");
 	});
 

@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // Process-heavy suites miss their behavior deadlines at higher file concurrency.
+    maxWorkers: 1,
     env: {
       PI_MCP_ADAPTER_TEST_AUTH_STORE: "memory",
       // Cache tests opt in explicitly to keep existing tests platform-neutral.

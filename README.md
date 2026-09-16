@@ -43,15 +43,16 @@ Use `"extensions": []` to load no extensions from the package. Omitting `extensi
 
 - [`pi-agent-status`](packages/pi-agent-status/README.md): non-modal free-text input requests for agents.
 - [`pi-handoff-compaction`](packages/pi-handoff-compaction/README.md): structured same-session handoff compaction.
-- [`pi-powerline-footer`](packages/pi-powerline-footer/README.md): a Powerline-style Pi status bar.
+- [`pi-powerline-footer`](packages/pi-powerline-footer/README.md): a supported Powerline footer and queue extension with its own release line.
 - [`pi-visual-profile`](packages/pi-visual-profile/README.md): an opt-in visual-profile extension shell.
 
 ## Development
 
 ```bash
 npm ci --ignore-scripts
+npm run prepare:mcp-tests
 npm run typecheck
 npm test
 ```
 
-The Powerline workspace was imported from [AntiD2ta/pi-powerline-footer](https://github.com/AntiD2ta/pi-powerline-footer) at commit [`fe4d659173e6`](https://github.com/AntiD2ta/pi-powerline-footer/commit/fe4d659173e60a763a21a865dc96db6e2199ad41). Its standalone repository remains active.
+`pi-powerline-footer` is a supported shipped extension. It tracks the upstream [nicobailon/pi-powerline-footer](https://github.com/nicobailon/pi-powerline-footer) source separately; its [provenance and sync procedure](packages/pi-powerline-footer/UPSTREAM.md) record the current revision and local divergence.
