@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import type { StopReason } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
 
+import { renderInputRequest } from "./input-request-renderer.ts";
 import { createUnresolvedInputState, type InputRequest } from "./input-state.ts";
 
 const requestUserInputParameters = Type.Object({
@@ -56,6 +57,7 @@ export default function (pi: ExtensionAPI) {
 		promptSnippet: "Request required free-text input from the user and end the current run",
 		promptGuidelines: [
 			"Call request_user_input only when work cannot continue without user input, and make it the sole final tool call.",
+			"Structure complex context as a short summary followed by bullets for multiple facts, findings, blockers, or constraints.",
 		],
 		parameters: requestUserInputParameters,
 		async execute(toolCallId, params) {
@@ -66,18 +68,12 @@ export default function (pi: ExtensionAPI) {
 				terminate: true,
 			};
 		},
+		renderShell: "self",
+		renderCall() {
+			return new Text("", 0, 0);
+		},
 		renderResult(result, _options, theme) {
-			const request = result.details;
-			return new Text([
-				theme.fg("muted", "Context"),
-				request.context,
-				theme.fg("muted", "Question"),
-				request.question,
-				theme.fg("muted", "Recommended answer"),
-				request.recommendedAnswer,
-				theme.fg("muted", "Rationale"),
-				request.rationale,
-			].join("\n"), 0, 0);
+			return renderInputRequest(result.details, theme);
 		},
 	});
 
