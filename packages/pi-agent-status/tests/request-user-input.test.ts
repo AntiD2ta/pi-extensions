@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 import extension from "../index.ts";
 
@@ -46,6 +47,39 @@ async function startSession(fake: ReturnType<typeof createFakePi>, mode: string)
 		},
 		sessionManager: { getBranch: () => [] },
 	});
+}
+
+interface RenderableTool extends RegisteredTool {
+	renderResult: (
+		result: { details: Record<string, string>; content: [] },
+		options: Record<string, never>,
+		theme: {
+			fg: (_color: string, text: string) => string;
+			bg: (color: string, text: string) => string;
+			bold: (text: string) => string;
+		},
+	) => { render: (width: number) => string[] };
+}
+
+const inputRequest = {
+	context: "The project has two database options.",
+	question: "Which database should I use?",
+	recommendedAnswer: "PostgreSQL",
+	rationale: "It fits the existing deployment platform.",
+	toolCallId: "request-1",
+};
+
+function renderInputRequest(
+	tool: RegisteredTool,
+	details: Record<string, string>,
+	width: number,
+	background = (_color: string, text: string) => text,
+) {
+	return (tool as RenderableTool).renderResult({ content: [], details }, {}, {
+		fg: (_color, text) => text,
+		bg: background,
+		bold: (text) => text,
+	}).render(width);
 }
 
 test("a TUI session shows Ready with its status timestamp above the editor", async (t) => {
@@ -161,41 +195,160 @@ test("request_user_input requires every decision field", async () => {
 	]);
 });
 
-test("request_user_input renders all decision fields in the transcript", async () => {
+test("request_user_input uses framed columns when the field heights are balanced", async () => {
 	const fake = createFakePi();
 	extension(fake.pi);
 	await startSession(fake, "tui");
 	const tool = fake.getTool();
 	assert.ok(tool);
+	const lines = renderInputRequest(tool, inputRequest, 126);
 
-	const renderedTool = tool as unknown as {
-		renderResult: (
-			result: { details: Record<string, string>; content: [] },
-			options: Record<string, never>,
-			theme: { fg: (_color: string, text: string) => string },
-		) => { render: (width: number) => string[] };
-	};
-	const component = renderedTool.renderResult({
-		content: [],
-		details: {
-			context: "The project has two database options.",
-			question: "Which database should I use?",
-			recommendedAnswer: "PostgreSQL",
-			rationale: "It fits the existing deployment platform.",
-			toolCallId: "request-1",
-		},
-	}, {}, { fg: (_color, text) => text });
+	assert.equal(lines[0], `╭${"─".repeat(124)}╮`);
+	assert.match(lines[1], /request_user_input\s+Needs input/);
+	assert.ok(lines.some((line) => /│ Question\s+│ Recommended answer\s+│/.test(line)));
+	assert.ok(lines.some((line) => /│ Context\s+│ Rationale\s+│/.test(line)));
+	assert.equal(lines.at(-1), `╰${"─".repeat(124)}╯`);
+	assert.equal(lines.every((line) => visibleWidth(line) === 126), true);
+});
 
-	assert.deepEqual(component.render(100).map((line) => line.trimEnd()), [
-		"Context",
-		"The project has two database options.",
+test("request_user_input stacks every field when Context makes the columns too uneven", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const context = Array.from({ length: 15 }, (_, index) =>
+		`- F${index + 1}: This finding contains enough detail to occupy several lines in a column.`).join("\n");
+	const lines = renderInputRequest(tool, {
+		...inputRequest,
+		context,
+		question: "Which findings should I fix?",
+		recommendedAnswer: "Fix F1 only.",
+		rationale: "F1 is the only actionable finding.",
+	}, 126);
+	const labels = ["Question", "Context", "Recommended answer", "Rationale"]
+		.map((label) => lines.findIndex((line) => new RegExp(`^│ ${label}\\s+│$`).test(line)));
+
+	assert.equal(labels.every((index) => index >= 0), true);
+	assert.deepEqual(labels, [...labels].sort((left, right) => left - right));
+	assert.equal(lines.some((line) => line.slice(1, -1).includes("│")), false);
+	assert.equal(lines.every((line) => visibleWidth(line) === 126), true);
+});
+
+test("request_user_input stacks every field when the terminal is narrow", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const lines = renderInputRequest(tool, inputRequest, 70);
+	const labels = ["Question", "Context", "Recommended answer", "Rationale"]
+		.map((label) => lines.findIndex((line) => new RegExp(`^│ ${label}\\s+│$`).test(line)));
+
+	assert.equal(lines[0], `╭${"─".repeat(68)}╮`);
+	assert.equal(labels.every((index) => index >= 0), true);
+	assert.deepEqual(labels, [...labels].sort((left, right) => left - right));
+	assert.equal(lines.every((line) => visibleWidth(line) === 70), true);
+});
+
+test("request_user_input preserves literal bullet markers", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const lines = renderInputRequest(tool, { ...inputRequest, context: "- F1: Keep this marker." }, 70);
+
+	assert.ok(lines.some((line) => line.includes("- F1: Keep this marker.")));
+	assert.equal(lines.some((line) => line.includes("• F1")), false);
+});
+
+test("request_user_input keeps every field visible at emergency terminal widths", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const output = renderInputRequest(tool, inputRequest, 4).join("").replaceAll(" ", "");
+
+	for (const text of [
 		"Question",
-		"Which database should I use?",
+		inputRequest.question,
+		"Context",
+		inputRequest.context,
 		"Recommended answer",
-		"PostgreSQL",
+		inputRequest.recommendedAnswer,
 		"Rationale",
-		"It fits the existing deployment platform.",
-	]);
+		inputRequest.rationale,
+	]) {
+		assert.ok(output.includes(text.replaceAll(" ", "")));
+	}
+});
+
+test("request_user_input keeps its frame and header when five columns are available", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const lines = renderInputRequest(tool, inputRequest, 5);
+	const output = lines.join("").replace(/[ │─╭╮╰╯├┤]/g, "");
+
+	assert.equal(lines[0], "╭───╮");
+	assert.ok(output.includes("request_user_input"));
+	assert.ok(output.includes("Needsinput"));
+	assert.ok(output.includes("Recommendedanswer"));
+	assert.equal(lines.every((line) => visibleWidth(line) === 5), true);
+});
+
+test("request_user_input keeps advice fields tinted at emergency terminal widths", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const tinted: string[] = [];
+	renderInputRequest(tool, inputRequest, 4, (color, text) => {
+		if (color === "toolPendingBg") tinted.push(text);
+		return text;
+	});
+	const output = tinted.join("").replaceAll(" ", "");
+
+	assert.ok(output.includes("request_user_input"));
+	assert.ok(output.includes("Needsinput"));
+	assert.ok(output.includes("Recommendedanswer"));
+	assert.ok(output.includes(inputRequest.recommendedAnswer.replaceAll(" ", "")));
+	assert.ok(output.includes("Rationale"));
+	assert.ok(output.includes(inputRequest.rationale.replaceAll(" ", "")));
+	assert.equal(output.includes("Context"), false);
+});
+
+test("request_user_input wraps field labels when the frame is very narrow", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const output = renderInputRequest(tool, inputRequest, 12).join("").replace(/[ │─╭╮╰╯├┤]/g, "");
+
+	assert.ok(output.includes("Question"));
+	assert.ok(output.includes("Context"));
+	assert.ok(output.includes("Recommendedanswer"));
+	assert.ok(output.includes("Rationale"));
+});
+
+test("request_user_input tints Recommended answer and Rationale without tinting Context", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	assert.ok(tool);
+	const lines = renderInputRequest(tool, inputRequest, 70,
+		(color, text) => color === "toolPendingBg" ? `<pending>${text}</pending>` : text);
+
+	assert.ok(lines.some((line) => line.includes("Context") && !line.includes("<pending>")));
+	assert.ok(lines.some((line) => line.includes("Recommended answer") && line.includes("<pending>")));
+	assert.ok(lines.some((line) => line.includes("Rationale") && line.includes("<pending>")));
 });
 
 test("a nonblank interactive response resolves the pending input request", async () => {

@@ -238,6 +238,7 @@ test("the agent receives exclusive-call guidance and resumes from the next free-
 	assert.match(firstContext.systemPrompt, /request_user_input only when work cannot continue without user input/);
 	assert.match(firstContext.systemPrompt, /sole final tool call/);
 	assert.match(firstContext.systemPrompt, /end the current run/);
+	assert.match(firstContext.systemPrompt, /Structure complex context as a short summary followed by bullets/);
 
 	await session.prompt("Use PostgreSQL.", { source: "interactive" });
 
