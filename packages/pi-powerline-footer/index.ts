@@ -2030,7 +2030,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   pi.on("message_start", async (event, ctx) => {
     currentCtx = ctx;
     const message = event.message;
-    if (isRecord(message) && message.role === "user") {
+    if (message.role === "user") {
       finishPendingQueueDelivery(getPromptHistoryText(message.content), ctx);
     }
   });
