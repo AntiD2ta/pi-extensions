@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 
-import { fauxAssistantMessage, fauxToolCall, type Context } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type TranscriptContext } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -220,8 +221,8 @@ test("a non-terminating sibling tool result causes a follow-up model turn", asyn
 test("the agent receives exclusive-call guidance and resumes from the next free-text prompt", async (t) => {
 	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
 	const { faux, session, widgets } = await createHarness(t);
-	let firstContext: Context | undefined;
-	let resumedContext: Context | undefined;
+	let firstContext: TranscriptContext | undefined;
+	let resumedContext: TranscriptContext | undefined;
 	faux.setResponses([
 		(context) => {
 			firstContext = context;
@@ -234,11 +235,12 @@ test("the agent receives exclusive-call guidance and resumes from the next free-
 	]);
 
 	await session.prompt("Choose the database.");
-	assert.ok(firstContext?.systemPrompt);
-	assert.match(firstContext.systemPrompt, /request_user_input only when work cannot continue without user input/);
-	assert.match(firstContext.systemPrompt, /sole final tool call/);
-	assert.match(firstContext.systemPrompt, /end the current run/);
-	assert.match(firstContext.systemPrompt, /Structure complex context as a short summary followed by bullets/);
+	assert.ok(firstContext);
+	const systemPrompt = getCurrentSystemPrompt(firstContext.messages);
+	assert.match(systemPrompt, /request_user_input only when work cannot continue without user input/);
+	assert.match(systemPrompt, /sole final tool call/);
+	assert.match(systemPrompt, /end the current run/);
+	assert.match(systemPrompt, /Structure complex context as a short summary followed by bullets/);
 
 	await session.prompt("Use PostgreSQL.", { source: "interactive" });
 

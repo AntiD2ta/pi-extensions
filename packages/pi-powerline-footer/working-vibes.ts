@@ -45,14 +45,27 @@ async function completeVibe(
   options: ProviderStreamOptions,
 ): Promise<AssistantMessage> {
   const registry = extensionCtx?.modelRegistry;
-  const provider = registry?.getProvider(providerId);
-  if (!registry || !provider) {
+  if (!registry) {
     throw new Error(`Provider not registered: ${providerId}`);
   }
+  if (typeof registry.complete === "function") {
+    return registry.complete(model, context, options);
+  }
 
+  const provider = registry.getProvider(providerId);
+  if (!provider) {
+    throw new Error(`Provider not registered: ${providerId}`);
+  }
   const baseUrl = (await registry.getProviderAuth(providerId))?.auth.baseUrl;
   const requestModel = baseUrl ? { ...model, baseUrl } : model;
-  return provider.stream(requestModel, context, options).result();
+  const legacyProvider = provider as unknown as {
+    stream(
+      requestModel: Model<string>,
+      requestContext: Context,
+      requestOptions: ProviderStreamOptions,
+    ): { result(): Promise<AssistantMessage> };
+  };
+  return legacyProvider.stream(requestModel, context, options).result();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

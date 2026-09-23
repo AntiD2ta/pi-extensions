@@ -50,14 +50,14 @@ test("handoff compaction is a workspace package", () => {
 	assert.ok(rootManifest.workspaces.includes("packages/pi-handoff-compaction"));
 });
 
-test("handoff compaction requires Pi 0.84.3 for compaction failure events", () => {
-	assert.equal(handoffManifest.peerDependencies["@earendil-works/pi-coding-agent"], ">=0.84.3 <0.85.0");
+test("handoff compaction supports Pi 0.84.3 through 0.87", () => {
+	assert.equal(handoffManifest.peerDependencies["@earendil-works/pi-coding-agent"], ">=0.84.3 <0.88.0");
 });
 
-test("pi-tool-display declares Pi 0.85 compatibility", () => {
+test("pi-tool-display supports Pi 0.85 through 0.87", () => {
 	assert.deepEqual(toolDisplayManifest.peerDependencies, {
-		"@earendil-works/pi-coding-agent": ">=0.85.0 <0.86.0",
-		"@earendil-works/pi-tui": ">=0.85.0 <0.86.0",
+		"@earendil-works/pi-coding-agent": ">=0.85.0 <0.88.0",
+		"@earendil-works/pi-tui": ">=0.85.0 <0.88.0",
 	});
 });
 
