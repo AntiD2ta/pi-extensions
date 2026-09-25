@@ -230,6 +230,7 @@ test("profile editor retains native input interactions after Pi applies default 
 		},
 	};
 	const editor = factory(tui, theme, { matches: () => false });
+	assert.equal((editor as Editor & { embedWorkingStatus: boolean }).embedWorkingStatus, true);
 	assert.equal(editor.getPaddingX(), 2);
 	editor.setPaddingX(0);
 	assert.equal(editor.getPaddingX(), 2);

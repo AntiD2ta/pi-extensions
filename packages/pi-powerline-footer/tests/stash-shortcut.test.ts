@@ -11,6 +11,7 @@ import childProcess from "node:child_process";
 import type { ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
 import { waitForGitUpdates } from "../git-status.ts";
 import { NERD_ICONS } from "../icons.ts";
+import { codingAgentModuleUrl } from "./pi-modules.ts";
 
 const source = readFileSync(new URL("../index.ts", import.meta.url), "utf-8");
 
@@ -68,7 +69,7 @@ interface FakeCtx {
     setWidget(name: string, factory: ((tui: { requestRender(): void }, theme: FakeTheme) => { render(width: number): string[] }) | undefined): void;
     setFooter(factory?: (tui: { requestRender(): void }, theme: FakeTheme, provider: ReadonlyFooterDataProvider) => { dispose(): void }): void;
     setHeader(): void;
-    setEditorComponent(): void;
+    setEditorComponent(factory?: (tui: object, theme: object, keybindings: object) => { render(width: number): string[]; setWorkingStatusIndicator(indicator: unknown): void }): void;
     getEditorComponent(): undefined;
   };
 }
@@ -129,6 +130,7 @@ function createCtx(options: { cwd: string; text?: string; customInputs?: string[
   const customInputs = [...(options.customInputs ?? [])];
   const widgets = new Map<string, { render(width: number): string[] }>();
   let footer: { dispose(): void } | undefined;
+  let editorFactory: Parameters<FakeCtx["ui"]["setEditorComponent"]>[0];
 
   const ctx: FakeCtx = {
     cwd: options.cwd,
@@ -175,13 +177,14 @@ function createCtx(options: { cwd: string; text?: string; customInputs?: string[
         footer = factory && options.footerData ? factory({ requestRender() {} }, fakeTheme(), options.footerData) : undefined;
       },
       setHeader() {},
-      setEditorComponent() {},
+      setEditorComponent(factory) { editorFactory = factory; },
       getEditorComponent: () => undefined,
     },
   };
 
   return {
     ctx,
+    get editorFactory() { return editorFactory; },
     widgets,
     disposeFooter: () => ctx.ui.setFooter(undefined),
     get text() { return text; },
@@ -195,6 +198,32 @@ function createCtx(options: { cwd: string; text?: string; customInputs?: string[
     },
   };
 }
+
+test("Powerline keeps Pi's working indicator in the editor top border", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "powerline-working-border-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeAgentSettings(root);
+  const { extension, restoreEnv } = await loadPowerline(root);
+  t.after(restoreEnv);
+  const fake = createFakePi();
+  extension(fake.pi);
+  const runtime = createCtx({ cwd: root });
+  await fake.handlers.get("session_start")?.({ reason: "resume" }, runtime.ctx);
+  assert.ok(runtime.editorFactory);
+  const { KeybindingsManager } = await import(codingAgentModuleUrl("core/keybindings.js"));
+  const editor = runtime.editorFactory(
+    { terminal: { columns: 80, rows: 24 }, requestRender() {} },
+    { borderColor: (text: string) => text },
+    KeybindingsManager.create(),
+  );
+  editor.setWorkingStatusIndicator({
+    renderInBorder: () => "Working",
+    renderSpinnerInBorder: () => "*",
+  });
+  assert.match(editor.render(80)[0] ?? "", /Working/);
+  (editor as typeof editor & { setText(text: string): void }).setText("x".repeat(1300));
+  assert.match(editor.render(80)[0] ?? "", /Working/);
+});
 
 test("Git rendering reuses the cwd-owned provider only on demand and refreshes across sessions", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "powerline-git-display-"));

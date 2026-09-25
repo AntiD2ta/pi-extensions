@@ -108,6 +108,7 @@ export class BashModeEditor extends CustomEditor {
   private readonly keybindingsRef: KeybindingsManager;
   private readonly optionsRef: BashModeEditorOptions;
   private wrappedProviderInstalled = false;
+  private workingStatusActive = false;
   private shellHistoryIndex = -1;
   private shellHistoryItems: string[] = [];
   private shellHistoryDraft = "";
@@ -122,9 +123,18 @@ export class BashModeEditor extends CustomEditor {
   private readonly horizontalMoveBindingConflicts = new Map<string, boolean>();
 
   constructor(tui: any, theme: any, keybindings: KeybindingsManager, options: BashModeEditorOptions) {
-    super(tui, theme, keybindings);
+    super(tui, theme, keybindings, { embedWorkingStatus: true });
     this.keybindingsRef = keybindings;
     this.optionsRef = options;
+  }
+
+  override setWorkingStatusIndicator(indicator: Parameters<CustomEditor["setWorkingStatusIndicator"]>[0]): void {
+    this.workingStatusActive = indicator !== undefined;
+    super.setWorkingStatusIndicator(indicator);
+  }
+
+  workingStatusBorder(width: number): string | undefined {
+    return this.workingStatusActive ? this.renderTopBorder(width, 0) : undefined;
   }
 
   setAutocompleteProvider(provider: AutocompleteProvider): void {

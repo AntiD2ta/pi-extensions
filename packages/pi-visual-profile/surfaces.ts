@@ -59,7 +59,7 @@ export function createProfileSurfaces() {
 						super.setPaddingX(config.padding);
 					}
 				}
-				return new ProfileEditor(tui, theme, keybindings, { paddingX: config.padding });
+				return new ProfileEditor(tui, theme, keybindings, { paddingX: config.padding, embedWorkingStatus: true });
 			} : undefined);
 			ownsEditor = wantsEditor;
 		}

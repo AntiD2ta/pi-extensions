@@ -3394,6 +3394,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
                   completionsEnabled: bashModeSettings.completions,
                 });
             if (fastLines) {
+              const statusBorder = editor.workingStatusBorder(width - 3);
+              if (statusBorder) fastLines[0] = ` ${statusBorder}${getFgAnsiCode("sep")}──${ansi.reset}`;
               if (editorPerf.options.enabled) editorPerf.count("editor.render.fast-hit");
               return fastLines;
             }
@@ -3428,7 +3430,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           }
 
           const result: string[] = [];
-          result.push(" " + bc("─".repeat(width - 2)));
+          const statusBorder = editor.workingStatusBorder(contentWidth);
+          result.push(statusBorder ? ` ${statusBorder}${bc("──")}` : " " + bc("─".repeat(width - 2)));
 
           for (let i = 1; i < bottomBorderIndex; i++) {
             const prefix = i === 1 ? promptPrefix : contPrefix;
