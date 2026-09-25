@@ -1,0 +1,17 @@
+{
+  "name": "pi-image-markers",
+  "version": "0.1.0",
+  "description": "Atomic clipboard image markers for the AntiD2ta Pi fork",
+  "type": "module",
+  "files": ["index.ts", "README.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.87.1 <0.88.0"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

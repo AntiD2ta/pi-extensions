@@ -7,6 +7,7 @@
   "workspaces": [
     "packages/pi-agent-status",
     "packages/pi-handoff-compaction",
+    "packages/pi-image-markers",
     "packages/pi-mcp-adapter",
     "packages/pi-powerline-footer",
     "packages/pi-visual-profile",
