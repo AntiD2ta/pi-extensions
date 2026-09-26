@@ -698,6 +698,21 @@ test("nativeRender isEnabled false bypasses native rendering regardless of width
   assert.equal(capturedWidth, 100);
 });
 
+test("native user box keeps Pi's prompt marker for fullscreen navigation", () => {
+  const marker = "\x1b]133;A\x07\x1b]133;P;pi-user\x07";
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => [`${marker}prompt`, "\x1b]133;B\x07\x1b]133;C\x07"],
+  };
+  patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
+  const message = Object.create(prototype) as PatchableUserMessagePrototype & { children: unknown[] };
+  message.children = [{ text: "prompt", theme: {} }];
+
+  const rendered = message.render(40);
+  assert.ok(rendered.some((line) => line.startsWith(marker) && line.includes("╭")));
+  assert.ok(rendered.some((line) => line.startsWith("\x1b]133;B\x07\x1b]133;C\x07") && line.includes("╰")));
+  assert.ok(rendered.some((line) => line.includes("│ prompt")));
+});
+
 test("nativeRender produces top margin spacer and border when enabled and width >= 8", () => {
   const prototype: PatchableUserMessagePrototype = {
     render: () => ["user message body"],
