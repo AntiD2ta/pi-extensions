@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { getKeybindings, KeybindingsManager, setKeybindings } from "@earendil-works/pi-tui";
 import {
   extractUserMessageMarkdownState,
 } from "../src/user-message-box-markdown.ts";
@@ -696,6 +697,29 @@ test("nativeRender isEnabled false bypasses native rendering regardless of width
   patchNativeUserMessagePrototype(prototype, () => undefined, () => false);
   assert.deepEqual(prototype.render(100), ["orig:100"]);
   assert.equal(capturedWidth, 100);
+});
+
+test("native user box keeps Pi's prompt marker for fullscreen navigation", () => {
+  const previousKeybindings = getKeybindings();
+  setKeybindings(new KeybindingsManager({
+    "tui.altScreen.userPrompt": { defaultKeys: "alt+home", description: "Jump to preceding user prompt" },
+  }));
+  try {
+    const marker = "\x1b]133;A\x07\x1b]133;P;pi-user\x07";
+    const prototype: PatchableUserMessagePrototype = {
+      render: () => [`${marker}prompt`, "\x1b]133;B\x07\x1b]133;C\x07"],
+    };
+    patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
+    const message = Object.create(prototype) as PatchableUserMessagePrototype & { children: unknown[] };
+    message.children = [{ text: "prompt", theme: {} }];
+
+    const rendered = message.render(40);
+    assert.ok(rendered.some((line) => line.startsWith(marker) && line.includes("╭")));
+    assert.ok(rendered.some((line) => line.startsWith("\x1b]133;B\x07\x1b]133;C\x07") && line.includes("╰")));
+    assert.ok(rendered.some((line) => line.includes("│ prompt")));
+  } finally {
+    setKeybindings(previousKeybindings);
+  }
 });
 
 test("nativeRender produces top margin spacer and border when enabled and width >= 8", () => {
