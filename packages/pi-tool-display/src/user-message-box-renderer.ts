@@ -1,5 +1,6 @@
 import {
   Markdown,
+  getKeybindings,
   truncateToWidth,
   visibleWidth,
   type DefaultTextStyle,
@@ -357,7 +358,7 @@ export function patchNativeUserMessagePrototype(
 ): void {
   const finalOutputCache = new WeakMap<object, CachedUserMessageFinalOutput>();
   const originalBodyLineCache = new WeakMap<object, CachedUserMessageBodyLines>();
-  const promptMarkerCache = new WeakMap<object, boolean>();
+  const hasPromptNavigation = Object.hasOwn(getKeybindings().getResolvedBindings(), "tui.altScreen.userPrompt");
 
   patchUserMessageRenderPrototype(
     prototype,
@@ -394,16 +395,7 @@ export function patchNativeUserMessagePrototype(
           originalBodyLineCache,
         );
         const promptStart = "\x1b]133;A\x07\x1b]133;P;pi-user\x07";
-        let hasPromptMarker = lines[0]?.startsWith(promptStart) ?? false;
-        if (markdownState && canCacheFinalOutput) {
-          const cached = promptMarkerCache.get(this as object);
-          if (cached !== undefined) {
-            hasPromptMarker = cached;
-          } else {
-            hasPromptMarker = originalRender.call(this, innerWidth)[0]?.startsWith(promptStart) ?? false;
-            promptMarkerCache.set(this as object, hasPromptMarker);
-          }
-        }
+        const hasPromptMarker = hasPromptNavigation;
         const contentLines = normalizeUserMessageContentLines(lines);
         const paddedContentLines = addUserMessageVerticalPadding(
           contentLines.length > 0 ? contentLines : [""],
