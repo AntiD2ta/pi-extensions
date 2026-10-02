@@ -27,9 +27,9 @@
     "test": "node --experimental-strip-types --test test/**/*.test.ts && npm run test --workspaces"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.87.1",
-    "@earendil-works/pi-coding-agent": "0.87.1",
-    "@earendil-works/pi-tui": "0.87.1",
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-tui": "1.0.0",
     "@types/node": "24.13.3",
     "typescript": "5.9.3"
   }
