@@ -9,7 +9,7 @@
     "test": "node --experimental-strip-types --test tests/**/*.test.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.87.1 <0.88.0"
+    "@earendil-works/pi-coding-agent": ">=0.87.1 <1.1.0"
   },
   "pi": {
     "extensions": ["./index.ts"]
