@@ -44,6 +44,33 @@ export default function (pi: ExtensionAPI) {
 	let presentationState: AgentState | undefined;
 	let latestStopReason: StopReason | undefined;
 
+	let manuallyBlocked = false;
+	const setManualBlock = (active: boolean, persist = true) => {
+		if (manuallyBlocked === active) return;
+		manuallyBlocked = active;
+		if (persist) pi.appendEntry<boolean>("agent-status-manual-block", active);
+		// Herdr keeps the last block label until every block is released.
+		pi.events.emit("herdr:blocked", active
+			? { active: true, label: "Waiting for user input." }
+			: { active: false });
+	};
+
+	pi.registerCommand("block", {
+		description: "Mark this agent as blocked in Herdr; use /block clear to release the mark",
+		handler: async (args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/block requires an interactive Pi terminal.", "warning");
+				return;
+			}
+			const argument = args.trim();
+			if (argument !== "" && argument !== "clear") {
+				ctx.ui.notify("Usage: /block [clear]", "warning");
+				return;
+			}
+			setManualBlock(argument !== "clear");
+		},
+	});
+
 	const setPresentationState = (ctx: ExtensionContext, next: AgentState) => {
 		if (presentationState === next) return;
 		presentationState = next;
@@ -81,6 +108,9 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.mode !== "tui") return;
 		pi.registerTool(requestUserInputTool);
 		inputState.restore(ctx);
+		const manualBlockEntry = [...ctx.sessionManager.getBranch()].reverse().find((entry) =>
+			entry.type === "custom" && entry.customType === "agent-status-manual-block");
+		setManualBlock(manualBlockEntry?.type === "custom" && manualBlockEntry.data === true, false);
 		inputState.onUnresolvedInputChange(() => {
 			if (!inputState.isUnresolved() && presentationState !== "Running") {
 				setPresentationState(ctx, "Ready");
@@ -112,6 +142,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("input", (event, ctx) => {
 		if (event.source !== "interactive" || event.text.trim().length === 0) return;
+		setManualBlock(false);
 		if (inputState.resolveInput()) {
 			return { action: "continue" };
 		}
