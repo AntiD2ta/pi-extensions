@@ -28,7 +28,13 @@ export function createUnresolvedInputState(pi: ExtensionAPI) {
 	let onChange: (() => void) | undefined;
 
 	const setRequest = (next: InputRequest | undefined) => {
+		const wasUnresolved = request !== undefined;
 		request = next;
+		if (wasUnresolved !== (request !== undefined)) {
+			pi.events.emit("herdr:blocked", request
+				? { active: true, label: "Waiting for user input." }
+				: { active: false });
+		}
 		onChange?.();
 	};
 
@@ -49,21 +55,22 @@ export function createUnresolvedInputState(pi: ExtensionAPI) {
 			return true;
 		},
 		restore(ctx: Pick<ExtensionContext, "sessionManager">) {
-			setRequest(undefined);
+			let restoredRequest: InputRequest | undefined;
 			const branch = ctx.sessionManager.getBranch();
 			for (const entry of branch) {
 				if (entry.type === "message" && entry.message.role === "toolResult") {
 					if (entry.message.toolName === "request_user_input" && isInputRequest(entry.message.details)) {
-						setRequest({ ...entry.message.details, toolCallId: entry.message.toolCallId });
+						restoredRequest = { ...entry.message.details, toolCallId: entry.message.toolCallId };
 					}
 					continue;
 				}
 				if (entry.type !== "custom" || entry.customType !== "agent-status-input-resolution") continue;
-				if (!request || !isInputResolution(entry.data) || entry.data.toolCallId !== request.toolCallId) continue;
+				if (!restoredRequest || !isInputResolution(entry.data) || entry.data.toolCallId !== restoredRequest.toolCallId) continue;
 				const isResolved = branch.some((child) =>
 					child.parentId === entry.id && child.type === "message" && child.message.role === "user");
-				if (isResolved) setRequest(undefined);
+				if (isResolved) restoredRequest = undefined;
 			}
+			setRequest(restoredRequest);
 		},
 	};
 }

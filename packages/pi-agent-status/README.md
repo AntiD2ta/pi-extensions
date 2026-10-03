@@ -6,4 +6,6 @@ The transcript card uses two columns when the terminal is wide enough and the co
 
 An unanswered request survives session resume. The first nonblank interactive response records its resolution before Pi stores the user message.
 
+The extension emits `herdr:blocked` while a request is unanswered and clears it on that response. Load Herdr's Pi integration before this extension so it also receives the blocked event on session resume.
+
 In TUI mode, the status widget shows each non-running agent state with the machine-local time and date captured when that state begins: `Ready · 14:06:09 -- 13:09:2026`. The timestamp remains fixed until the state changes, and the widget is hidden while the agent runs.

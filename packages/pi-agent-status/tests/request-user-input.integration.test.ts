@@ -64,6 +64,7 @@ async function createHarness(
 	mkdirSync(cwd, { recursive: true });
 	mkdirSync(agentDir, { recursive: true });
 
+	const blockedEvents: unknown[] = [];
 	const { extension: fauxExtension, faux } = createTestFauxProvider();
 	const settingsManager = SettingsManager.inMemory({
 		compaction: { enabled: false },
@@ -81,6 +82,13 @@ async function createHarness(
 		settingsManager,
 		extensionFactories: [
 			fauxExtension,
+			(pi) => {
+				let started = false;
+				pi.on("session_start", () => { started = true; });
+				pi.events.on("herdr:blocked", (data) => {
+					if (started) blockedEvents.push(data);
+				});
+			},
 			extension,
 			...(options.withSiblingTool ? [siblingToolExtension] : []),
 			...(options.withFailingTool ? [failingToolExtension] : []),
@@ -131,7 +139,7 @@ async function createHarness(
 	};
 	t.after(dispose);
 
-	return { dispose, events, faux, session, widgets };
+	return { blockedEvents, dispose, events, faux, session, widgets };
 }
 
 test("request_user_input ends the run without a follow-up model turn", async (t) => {
@@ -152,6 +160,23 @@ test("request_user_input ends the run without a follow-up model turn", async (t)
 		message.role === "assistant" && message.content.some((content) =>
 			content.type === "text" && content.text === "unexpected automatic follow-up")), false);
 	assert.deepEqual(widgets.at(-1), ["agent-status", ["Needs input · 14:06:09 -- 13:09:2026"]]);
+});
+
+test("an input request keeps Herdr blocked through settlement until an interactive reply", async (t) => {
+	const { blockedEvents, faux, session } = await createHarness(t);
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("request_user_input", request), { stopReason: "toolUse" }),
+		fauxAssistantMessage("Continuing with PostgreSQL."),
+	]);
+
+	await session.prompt("Choose the database.");
+	assert.deepEqual(blockedEvents, [{ active: true, label: "Waiting for user input." }]);
+
+	await session.prompt("Use PostgreSQL.", { source: "interactive" });
+	assert.deepEqual(blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
 });
 
 test("terminal failures and interruptions keep their widget state", async (t) => {
@@ -282,12 +307,17 @@ test("resuming restores an unanswered request without replaying its tool call", 
 	const resumed = await createHarness(t, { root, sessionFile });
 
 	assert.equal(resumed.faux.state.callCount, 0);
+	assert.deepEqual(resumed.blockedEvents, [{ active: true, label: "Waiting for user input." }]);
 	assert.equal(resumed.events.some((event) => event.type === "tool_execution_start"), false);
 	assert.equal(resumed.session.sessionManager.getEntries().length, entryCount);
 	assert.deepEqual(resumed.widgets.at(-1), ["agent-status", ["Needs input · 14:06:09 -- 13:09:2026"]]);
 
 	resumed.faux.setResponses([fauxAssistantMessage("Continuing with PostgreSQL.")]);
 	await resumed.session.prompt("Use PostgreSQL.", { source: "interactive" });
+	assert.deepEqual(resumed.blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
 	const entries = resumed.session.sessionManager.getBranch();
 	const resolution = entries.find((entry) =>
 		entry.type === "custom" && entry.customType === "agent-status-input-resolution");
@@ -297,6 +327,7 @@ test("resuming restores an unanswered request without replaying its tool call", 
 	resumed.dispose();
 
 	const resolvedResume = await createHarness(t, { root, sessionFile });
+	assert.deepEqual(resolvedResume.blockedEvents, []);
 	assert.equal(resolvedResume.faux.state.callCount, 0);
 	assert.equal(resolvedResume.widgets.some(([, widget]) =>
 		widget?.[0] === "Needs input · 14:06:09 -- 13:09:2026"), false);
