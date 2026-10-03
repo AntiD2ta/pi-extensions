@@ -16,7 +16,11 @@ function createFakePi() {
 	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
 	const entries: Array<{ customType: string; data: unknown }> = [];
 	const widgets: Array<[string, string[] | undefined]> = [];
+	const blockedEvents: unknown[] = [];
 	const pi = {
+		events: { emit(event: string, data: unknown) {
+			if (event === "herdr:blocked") blockedEvents.push(data);
+		} },
 		on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
 			handlers.set(event, handler);
 		},
@@ -31,6 +35,7 @@ function createFakePi() {
 		pi: pi as unknown as ExtensionAPI,
 		entries,
 		widgets,
+		blockedEvents,
 		getHandler: (event: string) => handlers.get(event),
 		getTool: () => tool,
 	};
@@ -372,6 +377,7 @@ test("a nonblank interactive response resolves the pending input request", async
 
 	await input({ type: "input", source: "interactive", text: "   ", images: undefined }, {});
 	assert.deepEqual(fake.entries, []);
+	assert.deepEqual(fake.blockedEvents, [{ active: true, label: "Waiting for user input." }]);
 
 	const result = await input({
 		type: "input",
@@ -381,10 +387,33 @@ test("a nonblank interactive response resolves the pending input request", async
 	}, {});
 
 	assert.deepEqual(result, { action: "continue" });
+	assert.deepEqual(fake.blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
 	assert.deepEqual(fake.entries, [{
 		customType: "agent-status-input-resolution",
 		data: { toolCallId: "request-1" },
 	}]);
+});
+
+test("replacing a pending input request does not add another Herdr block", async () => {
+	const fake = createFakePi();
+	extension(fake.pi);
+	await startSession(fake, "tui");
+	const tool = fake.getTool();
+	const input = fake.getHandler("input");
+	assert.ok(tool);
+	assert.ok(input);
+
+	await tool.execute("request-1", inputRequest);
+	await tool.execute("request-2", inputRequest);
+	assert.deepEqual(fake.blockedEvents, [{ active: true, label: "Waiting for user input." }]);
+	await input({ type: "input", source: "interactive", text: "Use PostgreSQL." }, {});
+	assert.deepEqual(fake.blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
 });
 
 test("agent lifecycle projects terminal states above the editor", async (t) => {
