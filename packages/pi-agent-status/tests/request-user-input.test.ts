@@ -24,6 +24,7 @@ function createFakePi() {
 		on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
 			handlers.set(event, handler);
 		},
+		registerCommand() {},
 		registerTool(registered: RegisteredTool) {
 			tool = registered;
 		},

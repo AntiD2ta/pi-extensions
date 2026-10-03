@@ -54,7 +54,7 @@ const failingToolExtension: ExtensionFactory = (pi) => {
 
 async function createHarness(
 	t: TestContext,
-	options: { root?: string; sessionFile?: string; withFailingTool?: boolean; withSiblingTool?: boolean; retry?: boolean } = {},
+	options: { root?: string; sessionFile?: string; withFailingTool?: boolean; withSiblingTool?: boolean; retry?: boolean; mode?: "tui" | "rpc" } = {},
 ) {
 	const ownsRoot = options.root === undefined;
 	const root = options.root ?? mkdtempSync(join(tmpdir(), "pi-agent-status-"));
@@ -83,6 +83,10 @@ async function createHarness(
 		extensionFactories: [
 			fauxExtension,
 			(pi) => {
+				pi.registerCommand("test-inspect", {
+					description: "Inspect without submitting a prompt",
+					handler: async () => {},
+				});
 				let started = false;
 				pi.on("session_start", () => { started = true; });
 				pi.events.on("herdr:blocked", (data) => {
@@ -117,7 +121,11 @@ async function createHarness(
 	});
 
 	const widgets: Array<[string, string[] | undefined]> = [];
+	const notifications: string[] = [];
 	const uiContext = {
+		notify(message: string) {
+			notifications.push(message);
+		},
 		setWidget(key: string, value: string[] | undefined) {
 			widgets.push([key, value]);
 		},
@@ -128,7 +136,7 @@ async function createHarness(
 	} as unknown as ExtensionUIContext;
 	const events: AgentSessionEvent[] = [];
 	session.subscribe((event) => events.push(event));
-	await session.bindExtensions({ mode: "tui", uiContext });
+	await session.bindExtensions({ mode: options.mode ?? "tui", uiContext });
 
 	let disposed = false;
 	const dispose = () => {
@@ -139,8 +147,17 @@ async function createHarness(
 	};
 	t.after(dispose);
 
-	return { blockedEvents, dispose, events, faux, session, widgets };
+	return { blockedEvents, dispose, events, faux, notifications, session, widgets };
 }
+
+test("/block marks the agent without a model call", async (t) => {
+	const { blockedEvents, faux, session } = await createHarness(t);
+
+	await session.prompt("/block");
+
+	assert.deepEqual(blockedEvents, [{ active: true, label: "Waiting for user input." }]);
+	assert.equal(faux.state.callCount, 0);
+});
 
 test("request_user_input ends the run without a follow-up model turn", async (t) => {
 	t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 13, 14, 6, 9) });
@@ -331,4 +348,148 @@ test("resuming restores an unanswered request without replaying its tool call", 
 	assert.equal(resolvedResume.faux.state.callCount, 0);
 	assert.equal(resolvedResume.widgets.some(([, widget]) =>
 		widget?.[0] === "Needs input · 14:06:09 -- 13:09:2026"), false);
+});
+
+test("repeated /block adds only one mark and /block clear releases only that mark", async (t) => {
+	const { blockedEvents, faux, session } = await createHarness(t);
+
+	await session.prompt("/block");
+	await session.prompt("/block");
+	assert.deepEqual(blockedEvents, [{ active: true, label: "Waiting for user input." }]);
+
+	await session.prompt("/block clear");
+	await session.prompt("/block clear");
+	assert.deepEqual(blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
+	assert.equal(faux.state.callCount, 0);
+});
+
+test("a nonblank interactive prompt releases the manual block before the agent starts", async (t) => {
+	const { blockedEvents, faux, session } = await createHarness(t);
+	let eventsAtModelCall: unknown[] = [];
+	faux.setResponses([() => {
+		eventsAtModelCall = [...blockedEvents];
+		return fauxAssistantMessage("Continuing.");
+	}]);
+	await session.prompt("/block");
+
+	await session.prompt("Continue.", { source: "interactive" });
+
+	assert.deepEqual(eventsAtModelCall, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
+});
+
+test("/block rejects unsupported arguments without changing the mark", async (t) => {
+	const { blockedEvents, notifications, session } = await createHarness(t);
+
+	await session.prompt("/block invalid");
+
+	assert.deepEqual(blockedEvents, []);
+	assert.deepEqual(notifications, ["Usage: /block [clear]"]);
+});
+
+test("the manual block survives reload and resume, and a cleared block stays cleared", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "pi-manual-block-resume-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const initial = await createHarness(t, { root });
+	initial.faux.setResponses([fauxAssistantMessage("Ready for review.")]);
+	await initial.session.prompt("Finish the task.");
+	await initial.session.prompt("/block");
+	const sessionFile = initial.session.sessionFile;
+	assert.ok(sessionFile);
+
+	await initial.session.reload();
+	assert.deepEqual(initial.blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: true, label: "Waiting for user input." },
+	]);
+	initial.dispose();
+
+	const resumed = await createHarness(t, { root, sessionFile });
+	assert.deepEqual(resumed.blockedEvents, [{ active: true, label: "Waiting for user input." }]);
+	await resumed.session.prompt("/block clear");
+	resumed.dispose();
+
+	const cleared = await createHarness(t, { root, sessionFile });
+	assert.deepEqual(cleared.blockedEvents, []);
+});
+
+test("clearing a manual mark preserves a genuine pending input block and its label", async (t) => {
+	const { blockedEvents, faux, session } = await createHarness(t);
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("request_user_input", request), { stopReason: "toolUse" }),
+		fauxAssistantMessage("Continuing with PostgreSQL."),
+	]);
+	await session.prompt("Choose the database.");
+	await session.prompt("/block");
+	await session.prompt("/block clear");
+
+	assert.deepEqual(blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+	]);
+
+	await session.prompt("Use PostgreSQL.", { source: "interactive" });
+	assert.deepEqual(blockedEvents.at(-1), { active: false });
+});
+
+test("blank input, extension prompts and unrelated commands leave the manual mark set", async (t) => {
+	const { blockedEvents, faux, session } = await createHarness(t);
+	faux.setResponses([
+		fauxAssistantMessage("No user reply."),
+		fauxAssistantMessage("Background work."),
+	]);
+	await session.prompt("/block");
+	await session.prompt("   ", { source: "interactive" });
+	await session.prompt("Background work.", { source: "extension" });
+	await session.prompt("/test-inspect");
+	assert.equal(faux.state.callCount, 2);
+	assert.deepEqual(blockedEvents, [{ active: true, label: "Waiting for user input." }]);
+
+	await session.reload();
+	assert.deepEqual(blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: true, label: "Waiting for user input." },
+	]);
+});
+
+test("/block does not publish a Herdr mark in RPC mode", async (t) => {
+	const { blockedEvents, notifications, session } = await createHarness(t, { mode: "rpc" });
+
+	await session.prompt("/block");
+
+	assert.deepEqual(blockedEvents, []);
+	assert.deepEqual(notifications, ["/block requires an interactive Pi terminal."]);
+});
+
+test("replying with both blocks active resolves both across session resume", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "pi-both-blocks-resume-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const initial = await createHarness(t, { root });
+	initial.faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("request_user_input", request), { stopReason: "toolUse" }),
+		fauxAssistantMessage("Continuing with PostgreSQL."),
+	]);
+	await initial.session.prompt("Choose the database.");
+	await initial.session.prompt("/block");
+
+	await initial.session.prompt("Use PostgreSQL.", { source: "interactive" });
+	assert.deepEqual(initial.blockedEvents, [
+		{ active: true, label: "Waiting for user input." },
+		{ active: true, label: "Waiting for user input." },
+		{ active: false },
+		{ active: false },
+	]);
+	const sessionFile = initial.session.sessionFile;
+	assert.ok(sessionFile);
+	initial.dispose();
+
+	const resumed = await createHarness(t, { root, sessionFile });
+	assert.deepEqual(resumed.blockedEvents, []);
+	assert.equal(resumed.widgets.some(([, widget]) => widget?.[0]?.startsWith("Needs input")), false);
 });
