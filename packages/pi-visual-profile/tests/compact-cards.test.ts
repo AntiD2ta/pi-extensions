@@ -107,7 +107,7 @@ test("each kind of tool has its own verb color, and targets are highlighted", ()
 	assert.match(header("web_search", { query: "pi" }), /<syntaxType>Searched web<\/> <syntaxString>"pi"<\/>/);
 	assert.match(header("codemode", { code: "x" }), /<syntaxOperator>codemode<\/>/);
 	assert.match(header("edit", { path: "a.ts" }), /<bashMode>Edited<\/>/);
-	assert.match(header("mcp__linear__list_issues", { query: "x" }), /<mdLink>Called<\/> <text>linear\/list_issues<\/>/);
+	assert.match(header("mcp__linear__list_issues", { query: "x" }), /<mdLink>Called<\/> <text>linear\/list_issues<\/> <muted>\{"query":"x"\}<\/>$/);
 });
 
 test("codemode header counts, cost, and tokens have their own colors", () => {
@@ -217,6 +217,15 @@ test("an MCP card names the server and tool, then the arguments", () => {
 	const lines = renderRow("mcp__linear__list_issues", { query: "bug", limit: 5 }, "a\nb");
 
 	assert.deepEqual(lines, ['• Called linear/list_issues {"query":"bug","limit":5}', "  └ a", "    b"]);
+});
+
+test("an MCP card prefers Pi's real server and tool names, drops empty args, and shortens long ones", () => {
+	// Pi turns `-` into `_` in tool names; the result details keep the real names.
+	assert.equal(renderRow("mcp__dev_radius__list", {}, "a", {}, { server: "dev-radius", tool: "list" })[0], "• Called dev-radius/list");
+	assert.equal(renderRow("mcp__linear__list_issues", {}, "a")[0], "• Called linear/list_issues");
+	const header = renderRow("mcp__linear__list_issues", { query: "x".repeat(200) }, "a")[0];
+	assert.match(header, /\.\.\.$/);
+	assert.ok(header.length < 120);
 });
 
 test("a running edit or write names its action", () => {
