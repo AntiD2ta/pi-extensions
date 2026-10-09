@@ -223,9 +223,11 @@ test("an MCP card prefers Pi's real server and tool names, drops empty args, and
 	// Pi turns `-` into `_` in tool names; the result details keep the real names.
 	assert.equal(renderRow("mcp__dev_radius__list", {}, "a", {}, { server: "dev-radius", tool: "list" })[0], "• Called dev-radius/list");
 	assert.equal(renderRow("mcp__linear__list_issues", {}, "a")[0], "• Called linear/list_issues");
-	const header = renderRow("mcp__linear__list_issues", { query: "x".repeat(200) }, "a")[0];
-	assert.match(header, /\.\.\.$/);
-	assert.ok(header.length < 120);
+	const args = { query: "x".repeat(200) };
+	const header = createCompactRenderers("mcp__linear__list_issues", undefined, "unicode").renderCall!(args, theme, context({ args }) as never).render(300)[0];
+	assert.equal(header, `• Called linear/list_issues ${JSON.stringify(args).slice(0, 77)}...`);
+	// A hostile server cannot reach the terminal through its names.
+	assert.equal(renderRow("mcp__a__b", {}, "x", {}, { server: "a\x1b[31m", tool: "b\nc" })[0], "• Called a/bc");
 });
 
 test("a running edit or write names its action", () => {

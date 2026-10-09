@@ -334,7 +334,8 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 		}
 		const state = context.state as CardState;
 		const mcp = result.details as { server?: unknown; tool?: unknown } | undefined;
-		if (typeof mcp?.server === "string" && typeof mcp.tool === "string") state.compactMcpLabel = `${mcp.server}/${mcp.tool}`;
+		// The server picks these names, so strip escapes and control bytes.
+		if (typeof mcp?.server === "string" && typeof mcp.tool === "string") state.compactMcpLabel = stripTerminalSequences(`${mcp.server}/${mcp.tool}`).replace(/[\x00-\x1f\x7f]/g, "");
 		if ((toolName === "edit" || toolName === "write") && owner?.renderResult) {
 			// The owner's diff body keeps its own colors; the header already carries its summary rows.
 			const body = owner.renderResult(result, options, theme, { ...context, lastComponent: undefined });
