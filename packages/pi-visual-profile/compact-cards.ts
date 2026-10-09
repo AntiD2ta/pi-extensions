@@ -58,7 +58,8 @@ function lines(render: (width: number) => string[]): Component {
 }
 
 function running(context: RenderContext): boolean {
-	return !context.executionStarted || context.isPartial;
+	// Pi rebuilds history rows without executionStarted, so only isPartial means the call is still running.
+	return context.isPartial;
 }
 
 /** Paints rows on the tool background Pi's shell would draw, since compact rows render their own shell. */
