@@ -51,7 +51,7 @@ test("doctor renders configuration in readable sections", () => {
 		"",
 		"Compact tool renderers",
 		"  resolver: available",
-		"  compact by default: bash, powershell, read, grep, find, ls, edit, write, codemode, web_search, fetch_content, get_search_content",
+		"  compact by default: bash, powershell, read, grep, find, ls, edit, write, codemode, web_search, fetch_content, get_search_content, mcp__<server>__<tool>",
 		"  other tools: compact unless the tool has its own renderer",
 		"  overrides: bash=owner",
 		"",

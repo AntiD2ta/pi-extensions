@@ -40,6 +40,8 @@ export const COMPACT_BY_DEFAULT: ReadonlySet<string> = new Set([
 	"fetch_content",
 	"get_search_content",
 ]);
+/** Pi's built-in MCP names tools `mcp__<server>__<tool>`; pi-mcp-adapter's `mcp__<server>` proxies do not match. */
+const BUILTIN_MCP_TOOL = /^mcp__(.+?)__(.+)$/;
 const TAIL_LINES = 3;
 const CALL_ARGS_CHARS = 80;
 const SCRIPT_HEADER = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOutput:\n$/;
@@ -47,10 +49,10 @@ const SCRIPT_HEADER = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOut
 const MUTATION_SUMMARY = /^\s*↳ (diff|created|overwritten)\b(?: \+(\d+) -(\d+))?/;
 const SHELL_STATUS = /\n*(?:Command exited with code (\d+)|Command timed out after \d+ seconds|Command aborted)\s*$/;
 
-/** Tools named in COMPACT_BY_DEFAULT and tools without their own renderer default to compact. */
+/** Tools named in COMPACT_BY_DEFAULT, built-in MCP tools, and tools without their own renderer default to compact. */
 export function rendererChoice(toolName: string, owner: ToolRenderers | undefined, choices: Record<string, RendererChoice>): RendererChoice {
 	const ownRenderer = Boolean(owner?.renderCall || owner?.renderResult);
-	return choices[toolName] ?? (COMPACT_BY_DEFAULT.has(toolName) || !ownRenderer ? "compact" : "owner");
+	return choices[toolName] ?? (COMPACT_BY_DEFAULT.has(toolName) || BUILTIN_MCP_TOOL.test(toolName) || !ownRenderer ? "compact" : "owner");
 }
 
 function lines(render: (width: number) => string[]): Component {
@@ -139,6 +141,7 @@ const PALETTE = {
 	web: "syntaxType",
 	edit: "bashMode",
 	codemode: "syntaxOperator",
+	mcp: "mdLink",
 	other: "toolTitle",
 	command: "text",
 	path: "mdLinkUrl",
@@ -221,6 +224,8 @@ function toolHeader(toolName: string, args: Args, context: RenderContext, state:
 			return header("Loaded", PALETTE.web, `${theme.fg("muted", "search result")} ${strong(theme, PALETTE.count, str(args.responseId) ?? "")}${detail}`);
 		}
 		default: {
+			const mcp = BUILTIN_MCP_TOOL.exec(toolName);
+			if (mcp) return header("Called", PALETTE.mcp, `${strong(theme, PALETTE.command, `${mcp[1]}/${mcp[2]}`)} ${theme.fg("muted", JSON.stringify(args))}`);
 			const target = Object.values(args).find((value) => typeof value === "string") as string | undefined;
 			return header(toolName, PALETTE.other, theme.fg("muted", (target ?? JSON.stringify(args) ?? "").replace(/\s+/g, " ")));
 		}
