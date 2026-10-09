@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
+import { getCapabilities, resetCapabilitiesCache, setCapabilities, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import visualProfile from "../index.ts";
 import { createCompactRenderers, rendererChoice, type ToolRenderers } from "../compact-cards.ts";
 
@@ -127,7 +127,11 @@ test("image placeholders appear only when Pi hides images", () => {
 	const render = (showImages: boolean) => renderers.renderResult!(result, { expanded: false, isPartial: false }, theme, context({ showImages }) as never).render(100).map((line) => line.trimEnd());
 
 	assert.deepEqual(render(false), ["  └ [image: image/png]"]);
+	setCapabilities({ ...getCapabilities(), images: "kitty" });
 	assert.deepEqual(render(true), []);
+	setCapabilities({ ...getCapabilities(), images: null });
+	assert.deepEqual(render(true), ["  └ [image: image/png]"]);
+	resetCapabilitiesCache();
 });
 
 test("a failed call turns the verb red for every tool", () => {

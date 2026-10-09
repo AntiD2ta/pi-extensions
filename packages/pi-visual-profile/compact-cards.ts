@@ -1,5 +1,5 @@
 import { keyText, type AgentToolResult, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import { getCapabilities, stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
 import type { GlyphMode, RendererChoice } from "./config.ts";
 
@@ -121,8 +121,9 @@ function textOutput(toolName: string, result: AgentToolResult<unknown>, showImag
 	let content = result.content;
 	const first = content[0];
 	if (toolName === "codemode" && first?.type === "text" && SCRIPT_HEADER.test(first.text)) content = content.slice(1);
-	// Pi draws images below the row when it shows them.
-	const text = content.flatMap((block) => block.type === "text" ? [block.text] : showImages ? [] : [`[image: ${block.mimeType}]`]).join("\n");
+	// Pi draws images below the row when it shows them and the terminal can.
+	const drawn = showImages && Boolean(getCapabilities().images);
+	const text = content.flatMap((block) => block.type === "text" ? [block.text] : drawn ? [] : [`[image: ${block.mimeType}]`]).join("\n");
 	// Raw escapes and control bytes from tool output would corrupt the terminal.
 	return stripTerminalSequences(text).replace(/\t/g, "   ").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").trimEnd();
 }
