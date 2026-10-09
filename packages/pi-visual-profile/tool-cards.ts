@@ -184,9 +184,21 @@ function minimalFrame(context: ToolRendererFrameContext, theme: ToolCardTheme): 
 	return frame;
 }
 
+/** Compact cards come from the tool renderer; a native row the profile does not replace stays unframed. */
+function plainFrame(context: ToolRendererFrameContext): Component {
+	const frame = new Container();
+	frame.addChild(context.call);
+	if (context.result) frame.addChild(context.result);
+	return frame;
+}
+
 export function createToolRendererProfile(style: ToolCardStyle, theme: ToolCardTheme, mutationProfile: { tools: Record<string, { renderShell?: string }> } = { tools: {} }): ToolRendererProfile {
 	return {
 		...mutationProfile,
-		frame: (context) => style === "boxed" ? new BoxedFrame(context, theme) : minimalFrame(context, theme),
+		frame: (context) => style === "boxed"
+			? new BoxedFrame(context, theme)
+			: style === "minimal"
+				? minimalFrame(context, theme)
+				: plainFrame(context),
 	};
 }

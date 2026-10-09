@@ -1,3 +1,4 @@
+import { compactByDefault } from "./compact-cards.ts";
 import type { VisualProfileConfig } from "./config.ts";
 
 export interface McpPresentationResult {
@@ -24,6 +25,7 @@ export interface DoctorReport {
 	projectPath?: string;
 	mcpPresentation: string;
 	toolRendererProfileSupported: boolean;
+	toolRendererResolverSupported: boolean;
 }
 
 export function formatDoctor(report: DoctorReport): string {
@@ -54,6 +56,12 @@ export function formatDoctor(report: DoctorReport): string {
 		`  MCP presentation: ${report.mcpPresentation}`,
 		`  tool renderer profile: ${report.toolRendererProfileSupported ? "supported" : "unavailable"}`,
 		"  unsupported surfaces: native Pi rendering",
+		"",
+		"Compact tool renderers",
+		`  resolver: ${report.toolRendererResolverSupported ? "available" : "unavailable (needs Pi 1.1)"}`,
+		`  compact by default: ${compactByDefault().join(", ")}`,
+		"  other tools: compact unless the tool has its own renderer",
+		`  overrides: ${Object.entries(config.renderers).map(([tool, choice]) => `${tool}=${choice}`).join(", ") || "none"}`,
 		"",
 		"Configuration files",
 		`  global: ${report.globalPath}`,
