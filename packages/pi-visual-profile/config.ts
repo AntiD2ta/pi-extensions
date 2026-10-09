@@ -3,7 +3,8 @@ import { dirname } from "node:path";
 
 export type GlyphMode = "unicode" | "nerd-font" | "ascii";
 export type BorderStyle = "rounded" | "sharp" | "none";
-export type ToolCardStyle = "boxed" | "minimal";
+export type ToolCardStyle = "boxed" | "minimal" | "compact";
+export type RendererChoice = "compact" | "owner";
 export type DiffLayout = "stacked" | "side-by-side";
 
 export interface VisualProfileConfig {
@@ -13,6 +14,8 @@ export interface VisualProfileConfig {
 	padding: number;
 	toolCardStyle: ToolCardStyle;
 	diffLayout: DiffLayout;
+	/** Per-tool choice between the compact card and the tool owner's renderer. */
+	renderers: Record<string, RendererChoice>;
 }
 
 export const DEFAULT_CONFIG: VisualProfileConfig = {
@@ -22,6 +25,7 @@ export const DEFAULT_CONFIG: VisualProfileConfig = {
 	padding: 1,
 	toolCardStyle: "boxed",
 	diffLayout: "stacked",
+	renderers: {},
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -42,8 +46,15 @@ function parseConfigPatch(value: unknown): Partial<VisualProfileConfig> {
 		...(typeof value.padding === "number" && Number.isInteger(value.padding) && value.padding >= 0 && value.padding <= 3
 			? { padding: value.padding }
 			: {}),
-		...(isOneOf(value.toolCardStyle, ["boxed", "minimal"]) ? { toolCardStyle: value.toolCardStyle } : {}),
+		...(isOneOf(value.toolCardStyle, ["boxed", "minimal", "compact"]) ? { toolCardStyle: value.toolCardStyle } : {}),
 		...(isOneOf(value.diffLayout, ["stacked", "side-by-side"]) ? { diffLayout: value.diffLayout } : {}),
+		...(isRecord(value.renderers)
+			? {
+				renderers: Object.fromEntries(
+					Object.entries(value.renderers).filter((entry): entry is [string, RendererChoice] => isOneOf(entry[1], ["compact", "owner"])),
+				),
+			}
+			: {}),
 	};
 }
 
@@ -56,11 +67,10 @@ function readConfigPatch(path: string): Partial<VisualProfileConfig> {
 }
 
 export function loadConfig(globalPath: string, projectPath?: string): VisualProfileConfig {
-	return {
-		...DEFAULT_CONFIG,
-		...readConfigPatch(globalPath),
-		...(projectPath ? readConfigPatch(projectPath) : {}),
-	};
+	const global = readConfigPatch(globalPath);
+	const project = projectPath ? readConfigPatch(projectPath) : {};
+	// A project overrides single tools, not the whole renderer map.
+	return { ...DEFAULT_CONFIG, ...global, ...project, renderers: { ...global.renderers, ...project.renderers } };
 }
 
 export function parseConfig(value: unknown): VisualProfileConfig {

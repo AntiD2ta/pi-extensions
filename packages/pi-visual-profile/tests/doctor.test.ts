@@ -12,7 +12,7 @@ test("doctor describes unavailable, competing, and released MCP presentation", (
 test("doctor renders configuration in readable sections", () => {
 	assert.equal(formatDoctor({
 		scope: "project overrides global",
-		config: { ...DEFAULT_CONFIG, enabled: true, glyphMode: "ascii" },
+		config: { ...DEFAULT_CONFIG, enabled: true, glyphMode: "ascii", renderers: { bash: "owner" } },
 		darkThemeAvailable: true,
 		lightThemeAvailable: false,
 		nativeFenceChromeAvailable: true,
@@ -21,6 +21,7 @@ test("doctor renders configuration in readable sections", () => {
 		projectPath: "/work/project/.pi/visual-profile/config.json",
 		mcpPresentation: "profile boxed rendering active",
 		toolRendererProfileSupported: false,
+		toolRendererResolverSupported: true,
 	}), [
 		"Visual profile doctor",
 		"",
@@ -47,6 +48,12 @@ test("doctor renders configuration in readable sections", () => {
 		"  MCP presentation: profile boxed rendering active",
 		"  tool renderer profile: unavailable",
 		"  unsupported surfaces: native Pi rendering",
+		"",
+		"Compact tool renderers",
+		"  resolver: available",
+		"  compact by default: bash, powershell, read, grep, find, ls, edit, write, codemode, web_search, fetch_content, get_search_content",
+		"  other tools: compact unless the tool has its own renderer",
+		"  overrides: bash=owner",
 		"",
 		"Configuration files",
 		"  global: /tmp/agent/visual-profile/config.json",
