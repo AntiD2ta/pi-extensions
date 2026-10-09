@@ -57,17 +57,27 @@ function lines(render: (width: number) => string[]): Component {
 	return { render, invalidate() {} };
 }
 
-/** Paints the tool background Pi's shell would draw, since compact rows render their own shell. */
-function onToolBackground(theme: CardTheme, isError: boolean, indent: number, render: (width: number) => string[]): Component {
+function running(context: RenderContext): boolean {
+	return !context.executionStarted || context.isPartial;
+}
+
+/** Paints rows on the tool background Pi's shell would draw, since compact rows render their own shell. */
+function onToolBackground(theme: CardTheme, context: RenderContext, indent: number, render: (width: number) => string[]): Component {
+	const background = running(context) ? "toolPendingBg" : context.isError ? "toolErrorBg" : "toolSuccessBg";
 	return lines((width) => {
 		const bodyWidth = Math.max(1, width - indent);
 		return render(bodyWidth).map((line) =>
-			`${" ".repeat(indent)}${theme.bg(isError ? "toolErrorBg" : "toolSuccessBg", line + " ".repeat(Math.max(0, bodyWidth - visibleWidth(line))))}`);
+			`${" ".repeat(indent)}${theme.bg(background, line + " ".repeat(Math.max(0, bodyWidth - visibleWidth(line))))}`);
 	});
 }
 
-function running(context: RenderContext): boolean {
-	return !context.executionStarted || context.isPartial;
+/** Pi's own tool box: padding on both sides, a blank row above the call and below the result. */
+function inToolBox(theme: CardTheme, context: RenderContext, edge: "top" | "bottom", component: Component): Component {
+	const pad = context.outputPad ?? 1;
+	return onToolBackground(theme, context, 0, (width) => {
+		const rows = component.render(Math.max(1, width - 2 * pad)).map((line) => `${" ".repeat(pad)}${line}`);
+		return edge === "top" ? ["", ...rows] : [...rows, ""];
+	});
 }
 
 function str(value: unknown): string | undefined {
@@ -107,11 +117,12 @@ function formatCall(call: NestedCall, theme: CardTheme): string {
 	return line;
 }
 
-function textOutput(toolName: string, result: AgentToolResult<unknown>): string {
+function textOutput(toolName: string, result: AgentToolResult<unknown>, showImages: boolean): string {
 	let content = result.content;
 	const first = content[0];
 	if (toolName === "codemode" && first?.type === "text" && SCRIPT_HEADER.test(first.text)) content = content.slice(1);
-	const text = content.map((block) => block.type === "text" ? block.text : `[image: ${block.mimeType}]`).join("\n");
+	// Pi draws images below the row when it shows them.
+	const text = content.flatMap((block) => block.type === "text" ? [block.text] : showImages ? [] : [`[image: ${block.mimeType}]`]).join("\n");
 	// Raw escapes and control bytes from tool output would corrupt the terminal.
 	return stripTerminalSequences(text).replace(/\t/g, "   ").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").trimEnd();
 }
@@ -286,8 +297,7 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 		const context = renderContext as RenderContext;
 		const pad = context.outputPad ?? 1;
 		if (isCodemode && context.expanded && owner?.renderCall) {
-			const call = owner.renderCall(args, theme, { ...context, lastComponent: undefined });
-			return onToolBackground(theme, context.isError, pad, (width) => call.render(width));
+			return inToolBox(theme, context, "top", owner.renderCall(args, theme, { ...context, lastComponent: undefined }));
 		}
 		const state = context.state as CardState;
 		return lines((width) => {
@@ -306,8 +316,7 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 		const context = renderContext as RenderContext;
 		const pad = context.outputPad ?? 1;
 		if (isCodemode && options.expanded && owner?.renderResult) {
-			const body = owner.renderResult(result, options, theme, { ...context, lastComponent: undefined });
-			return onToolBackground(theme, context.isError, pad, (width) => body.render(width));
+			return inToolBox(theme, context, "bottom", owner.renderResult(result, options, theme, { ...context, lastComponent: undefined }));
 		}
 		const state = context.state as CardState;
 		if ((toolName === "edit" || toolName === "write") && owner?.renderResult) {
@@ -315,10 +324,10 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 			const body = owner.renderResult(result, options, theme, { ...context, lastComponent: undefined });
 			// Any wide render shows the summary rows; their counts do not depend on width.
 			state.compactMutation = readMutation(body.render(200), result.details);
-			return onToolBackground(theme, context.isError, pad + 2, (width) =>
+			return onToolBackground(theme, context, pad + 2, (width) =>
 				body.render(width).filter((line) => !MUTATION_SUMMARY.test(stripTerminalSequences(line))));
 		}
-		let output = textOutput(toolName, result);
+		let output = textOutput(toolName, result, context.showImages);
 		if (toolName === "bash" || toolName === "powershell") {
 			const status = SHELL_STATUS.exec(output);
 			if (status) {

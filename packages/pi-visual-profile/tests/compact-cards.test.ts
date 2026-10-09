@@ -106,6 +106,28 @@ test("each kind of tool has its own verb color, and targets are highlighted", ()
 	assert.match(header("bash", { command: "ls" }), /<accent>Ran<\/>/);
 	assert.match(header("web_search", { query: "pi" }), /<syntaxType>Searched web<\/> <syntaxString>"pi"<\/>/);
 	assert.match(header("codemode", { code: "x" }), /<syntaxOperator>codemode<\/>/);
+	assert.match(header("edit", { path: "a.ts" }), /<bashMode>Edited<\/>/);
+});
+
+test("codemode header counts, cost, and tokens have their own colors", () => {
+	const recording = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (text: string) => text } as unknown as Theme;
+	const renderers = createCompactRenderers("codemode", undefined, "unicode");
+	const ctx = context();
+	renderers.renderResult!({ content: [{ type: "text", text: "" }], details: codemodeDetails }, { expanded: false, isPartial: false }, recording, ctx as never);
+	const header = renderers.renderCall!({ code: "x" }, recording, ctx as never).render(200)[0];
+
+	assert.match(header, /<syntaxNumber>2 calls<\/>/);
+	assert.match(header, /<warning>\$0\.0021<\/>/);
+	assert.match(header, /<syntaxType>3\.4k tok<\/>/);
+});
+
+test("image placeholders appear only when Pi hides images", () => {
+	const renderers = createCompactRenderers("read", undefined, "unicode");
+	const result = { content: [{ type: "image" as const, data: "x", mimeType: "image/png" }], details: undefined };
+	const render = (showImages: boolean) => renderers.renderResult!(result, { expanded: false, isPartial: false }, theme, context({ showImages }) as never).render(100).map((line) => line.trimEnd());
+
+	assert.deepEqual(render(false), ["  └ [image: image/png]"]);
+	assert.deepEqual(render(true), []);
 });
 
 test("a failed call turns the verb red for every tool", () => {
@@ -201,10 +223,10 @@ test("an edit card counts Pi diff rows with padded line numbers", () => {
 	assert.equal(renderRow("edit", { path: "a.ts" }, "ok", {}, { diff }, owner)[0], "• Edited a.ts (+2 -1)");
 });
 
-test("an overwrite reads its counts from the diff row after the action row", () => {
-	const owner: ToolRenderers = { renderResult: () => new Text("↳ overwritten\n↳ diff +3 -2\nbody", 0, 0) };
+test("an overwrite drawn without counts says Edited", () => {
+	const owner: ToolRenderers = { renderResult: () => new Text("↳ overwritten\nbody", 0, 0) };
 
-	assert.equal(renderRow("write", { path: "a.ts", content: "x" }, "ok", {}, undefined, owner)[0], "• Edited a.ts (+3 -2)");
+	assert.deepEqual(renderRow("write", { path: "a.ts", content: "x" }, "ok", {}, undefined, owner), ["• Edited a.ts", "  body"]);
 });
 
 test("a write without a known previous state says Wrote", () => {
@@ -228,15 +250,26 @@ test("an expanded card shows every output line", () => {
 test("an expanded codemode card keeps the tool background", () => {
 	const recording = { fg: (_color: string, text: string) => text, bg: (color: string, text: string) => `<${color}>${text}</>`, bold: (text: string) => text } as unknown as Theme;
 	const renderers = createCompactRenderers("codemode", ownRenderer, "unicode");
-	const call = renderers.renderCall!({ code: "x" }, recording, context({ expanded: true }) as never);
+	const render = (overrides: Record<string, unknown>) => {
+		const ctx = context({ expanded: true, outputPad: 1, ...overrides });
+		const call = renderers.renderCall!({ code: "x" }, recording, ctx as never);
+		const result = renderers.renderResult!({ content: [], details: undefined }, { expanded: true, isPartial: false }, recording, ctx as never);
+		return [...call.render(14), ...result.render(14)];
+	};
 
-	assert.deepEqual(call.render(14), ["<toolSuccessBg>owner call    </>"]);
+	assert.deepEqual(render({}), [
+		"<toolSuccessBg>              </>",
+		"<toolSuccessBg> owner call   </>",
+		"<toolSuccessBg> owner result </>",
+		"<toolSuccessBg>              </>",
+	]);
+	assert.equal(render({ isPartial: true })[0], "<toolPendingBg>              </>");
 });
 
 test("an expanded codemode card is codemode's own rendering", () => {
 	const lines = renderRow("codemode", { code: "x" }, "out", { expanded: true }, codemodeDetails, ownRenderer);
 
-	assert.deepEqual(lines, ["owner call", "owner result"]);
+	assert.deepEqual(lines, ["", "owner call", "owner result", ""]);
 });
 
 test("the profile resolver applies compact cards only while compact style is enabled", async (t) => {

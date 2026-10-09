@@ -230,6 +230,17 @@ test("boxed frame does not treat a wrapped status row as call content", () => {
 	assert.equal(callClicks, 0);
 });
 
+test("compact style leaves native rows unframed", () => {
+	const frame = createToolRendererProfile("compact", theme).frame({
+		call: new Text("native call", 0, 0),
+		result: new Text("native result", 0, 0),
+		state: "success",
+		expandKeyText: "ctrl+o",
+	});
+
+	assert.deepEqual(frame.render(40).map((line) => stripTerminalSequences(line).trimEnd()), ["native call", "native result"]);
+});
+
 test("minimal frame keeps native call and result without a border", () => {
 	const frame = createToolRendererProfile("minimal", theme).frame({
 		call: new Text("grep /profile/", 0, 0),
