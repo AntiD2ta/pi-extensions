@@ -121,7 +121,8 @@ test("codemode header counts, cost, and tokens have their own colors", () => {
 	assert.match(header, /<syntaxType>3\.4k tok<\/>/);
 });
 
-test("image placeholders appear only when Pi hides images", () => {
+test("image placeholders appear only when Pi hides images", (t) => {
+	t.after(resetCapabilitiesCache);
 	const renderers = createCompactRenderers("read", undefined, "unicode");
 	const result = { content: [{ type: "image" as const, data: "x", mimeType: "image/png" }], details: undefined };
 	const render = (showImages: boolean) => renderers.renderResult!(result, { expanded: false, isPartial: false }, theme, context({ showImages }) as never).render(100).map((line) => line.trimEnd());
@@ -131,7 +132,6 @@ test("image placeholders appear only when Pi hides images", () => {
 	assert.deepEqual(render(true), []);
 	setCapabilities({ ...getCapabilities(), images: null });
 	assert.deepEqual(render(true), ["  └ [image: image/png]"]);
-	resetCapabilitiesCache();
 });
 
 test("a failed call turns the verb red for every tool", () => {
