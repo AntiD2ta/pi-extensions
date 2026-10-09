@@ -8,14 +8,14 @@ A manual `/compact` request or an automatic trigger starts a handoff compaction:
 
 1. The extension cancels the first compaction request.
 2. It asks the current agent to write a handoff document to one generated path under the operating system temporary directory.
-3. It verifies that the active `write` tool wrote a non-empty regular Markdown file with every required section.
+3. It verifies that the active `write` tool wrote a non-empty regular Markdown file with every required section in order. Extra headings are allowed; headings inside fenced code do not count as sections.
 4. Pi compacts the session and starts with `Read and follow <handoff-path>`.
 
 The operating system owns temporary-file cleanup. The extension does not delete a handoff document because the continuing agent may still need it.
 
-A handoff compaction needs an active `write` tool. If `write` is unavailable or inactive, the extension leaves the conversation uncompacted and reports the failure. It also fails without retrying if the provider context has already overflowed before the handoff can begin. One response can move a session from below the trigger to provider overflow, so the extension cannot guarantee recovery in that case.
+A handoff compaction needs an active `write` tool. If `write` is unavailable or inactive, the extension leaves the conversation uncompacted and reports the failure. Context overflow also starts a handoff attempt, after the current run settles. If the provider rejects the handoff before a successful write, the extension reports the failure without replacing context. An overflow after a successful write still proceeds to file verification and compaction. On Pi 1.1.0, aborting the original run before handoff generation starts cancels the handoff. Older Pi versions do not report aborted settlement, so the handoff still starts. Duplicate automatic triggers do not retry a failed attempt until usage falls below the threshold or becomes unknown; `/compact` can retry manually.
 
-Automatic handoff begins at the earliest of Pi's native compaction threshold, 90 percent of the active model context window, or 275,000 used tokens.
+Automatic handoff begins at the earliest of Pi's native compaction threshold, 90 percent of the active model context window, or 275,000 used tokens. Claude models with context windows of at least 1,000,000 tokens use a 500,000-token cap instead of 275,000.
 
 ## Manual focus and Powerline
 

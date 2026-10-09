@@ -29,6 +29,7 @@ test("manual compaction writes a handoff before replacing context", async (t) =>
 	let handoffPath: string | undefined;
 	let compaction: { onComplete?: () => void } | undefined;
 	const ctx = {
+		isIdle: () => true,
 		compact(options: { onComplete?: () => void }) { compaction = options; },
 		sessionManager: { getLeafId: () => "handoff-boundary" },
 	};
@@ -79,6 +80,54 @@ test("manual compaction writes a handoff before replacing context", async (t) =>
 	assert.match(readFileSync(handoffPath, "utf8"), /^## Goal and constraints/m);
 });
 
+for (const [label, prompt] of [
+	["extra headings", "Original request\n\n## 1. Preflight\n\nInspect the checkout."],
+	["a leading heading", "## 1. Preflight\n\nInspect the checkout."],
+	["a required heading name", "Original request\n\n## References\n\nRead the plan."],
+	["fenced headings", "Original request\n\n````markdown\n## Current state\n\nExample state.\n```\n## References\n\nExample reference.\n````"],
+] as const) {
+	test(`handoff compaction accepts ${label} in the initial prompt`, async (t) => {
+		const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+		const messages: string[] = [];
+		let compactCalls = 0;
+		const pi = {
+			on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+			getActiveTools: () => ["write"],
+			sendUserMessage(message: string) { messages.push(message); },
+			appendEntry() {},
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			isIdle: () => true,
+			hasUI: true,
+			ui: { notify() {} },
+			compact() { compactCalls++; },
+			sessionManager: { getLeafId: () => "handoff-boundary" },
+		};
+		let handoffPath: string | undefined;
+		t.after(() => { if (handoffPath) rmSync(handoffPath, { force: true }); });
+
+		handoffCompaction(pi);
+		const beforeCompact = handlers.get("session_before_compact");
+		const compactFailed = handlers.get("session_compact_failed");
+		const toolResult = handlers.get("tool_result");
+		const settled = handlers.get("agent_settled");
+		assert.ok(beforeCompact);
+		assert.ok(compactFailed);
+		assert.ok(toolResult);
+		assert.ok(settled);
+
+		await beforeCompact({ reason: "manual", branchEntries: [] } as never, ctx as never);
+		await compactFailed({ reason: "manual", aborted: true } as never, ctx as never);
+		handoffPath = messages[0]?.match(/^.*\n\n## Handoff path\n\n(.+)$/m)?.[1];
+		assert.ok(handoffPath);
+		writeFileSync(handoffPath, handoffDocument().replace("## Initial prompt\n\ncontent", `## Initial prompt\n\n${prompt}`));
+		await toolResult({ toolName: "write", input: { path: handoffPath }, isError: false } as never, ctx as never);
+		await settled({} as never, ctx as never);
+
+		assert.equal(compactCalls, 1);
+	});
+}
+
 test("handoff compaction fails after a write to another path", async () => {
 	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
 	const messages: string[] = [];
@@ -90,6 +139,7 @@ test("handoff compaction fails after a write to another path", async () => {
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		hasUI: true,
 		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
 		compact() { assert.fail("must not compact after a write to another path"); },
@@ -129,6 +179,7 @@ test("handoff compaction fails after a failed write", async (t) => {
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		hasUI: true,
 		ui: { notify() {} },
 		compact() { compactCalls++; },
@@ -169,6 +220,7 @@ test("handoff compaction fails when required headings are empty", async (t) => {
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		hasUI: true,
 		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
 		compact() { assert.fail("must not compact an invalid handoff"); },
@@ -216,6 +268,7 @@ test("handoff compaction fails after an interrupted handoff turn", async (t) => 
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		hasUI: true,
 		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
 		compact() { compactCalls++; },
@@ -262,6 +315,7 @@ test("handoff compaction does not replace context before settlement", async (t) 
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		compact() { compactCalls++; },
 		sessionManager: { getLeafId: () => "handoff-boundary" },
 	};
@@ -302,6 +356,7 @@ test("handoff compaction invalidates pending work on session shutdown", async ()
 			appendEntry() {},
 		} as unknown as ExtensionAPI;
 		const ctx = {
+			isIdle: () => true,
 			hasUI: true,
 			ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
 			compact() { compactCalls++; },
@@ -619,27 +674,75 @@ test("automatic threshold caps large context windows at 275,000 tokens", async (
 	assert.equal(compactCalls, 1);
 });
 
-test("an earlier native threshold starts the handoff immediately", async () => {
-	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
-	const messages: string[] = [];
-	const pi = {
-		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
-		getActiveTools: () => ["write"],
-		sendUserMessage(message: string) { messages.push(message); },
-		appendEntry() {},
-	} as unknown as ExtensionAPI;
+test("model-specific thresholds raise only large Claude windows to 500,000 tokens", async () => {
+	for (const [id, contextWindow, threshold] of [
+		["claude-sonnet-5", 1_000_000, 500_000],
+		["anthropic/claude-opus-5-5", 1_048_576, 500_000],
+		["anthropic.claude-fable-5-1-v1:0", 1_000_000, 500_000],
+		["claude-sonnet-5", 200_000, 180_000],
+		["gpt-6.1-sol", 1_000_000, 275_000],
+	] as const) {
+		const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+		let compactCalls = 0;
+		let tokens = threshold - 1;
+		const pi = {
+			on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+			getActiveTools: () => ["write"],
+			appendEntry() {},
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			model: { id, contextWindow },
+			getContextUsage: () => ({ tokens, contextWindow, percent: tokens / contextWindow * 100 }),
+			compact() { compactCalls++; },
+		};
 
-	handoffCompaction(pi);
-	const beforeCompact = handlers.get("session_before_compact");
-	const compactFailed = handlers.get("session_compact_failed");
-	assert.ok(beforeCompact);
-	assert.ok(compactFailed);
-
-	const result = await beforeCompact({ reason: "threshold", branchEntries: [] } as never, {} as never);
-	assert.deepEqual(result, { cancel: true });
-	await compactFailed({ reason: "threshold", aborted: true } as never, {} as never);
-	assert.equal(messages.length, 1);
+		handoffCompaction(pi);
+		const turnEnd = handlers.get("turn_end");
+		assert.ok(turnEnd);
+		await turnEnd({} as never, ctx as never);
+		assert.equal(compactCalls, 0, id);
+		tokens = threshold;
+		await turnEnd({} as never, ctx as never);
+		assert.equal(compactCalls, 1, id);
+	}
 });
+
+for (const aborted of [false, true, undefined]) {
+	test(`an earlier native threshold ${aborted ? "preserves context when the user aborts before settlement" : aborted === undefined ? "starts after settlement on older Pi" : "waits for the original run to settle"}`, async () => {
+		const handlers = new Map<string, (event: never, ctx: never) => unknown>();
+		const messages: string[] = [];
+		const pi = {
+			on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
+			getActiveTools: () => ["write"],
+			sendUserMessage(message: string) { messages.push(message); },
+			appendEntry() {},
+		} as unknown as ExtensionAPI;
+		const notifications: string[] = [];
+		const ctx = {
+			isIdle: () => false,
+			hasUI: true,
+			ui: { notify(message: string) { notifications.push(message); } },
+		};
+
+		handoffCompaction(pi);
+		const beforeCompact = handlers.get("session_before_compact");
+		const compactFailed = handlers.get("session_compact_failed");
+		const settled = handlers.get("agent_settled");
+		assert.ok(beforeCompact);
+		assert.ok(compactFailed);
+		assert.ok(settled);
+
+		const result = await beforeCompact({ reason: "threshold", branchEntries: [] } as never, ctx as never);
+		assert.deepEqual(result, { cancel: true });
+		await compactFailed({ reason: "threshold", aborted: true } as never, ctx as never);
+		assert.equal(messages.length, 0);
+		await settled(aborted === undefined ? {} as never : { aborted } as never, ctx as never);
+		assert.equal(messages.length, aborted ? 0 : 1);
+		assert.deepEqual(notifications, aborted
+			? ["Handoff compaction failed before context replacement: the original run was aborted. The conversation was not compacted."]
+			: []);
+	});
+}
 
 test("a model switch recalculates later automatic checks without restarting handoff", async () => {
 	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
@@ -680,6 +783,7 @@ test("automatic handoff follows the manual handoff workflow through continuation
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		model: { contextWindow: 200_000 },
 		getContextUsage: () => ({ tokens: 180_000, contextWindow: 200_000, percent: 90 }),
 		compact(options: { onComplete?: () => void }) { compactions.push(options); },
@@ -756,6 +860,8 @@ test("failed automatic handoff attempts are not retried by duplicate triggers", 
 
 	await beforeCompact({ reason: "threshold", branchEntries: [] } as never, ctx as never);
 	await compactFailed({ reason: "threshold", aborted: true } as never, ctx as never);
+	await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never);
+	await compactFailed({ reason: "overflow", aborted: true } as never, ctx as never);
 	assert.equal(messages.length, 0);
 });
 
@@ -794,7 +900,7 @@ test("model switches do not reset an active automatic handoff attempt", async ()
 	assert.equal(compactCalls, 1);
 });
 
-test("provider overflow before handoff generation leaves the context unchanged", async () => {
+test("provider overflow starts one handoff without replacing context first", async () => {
 	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
 	const messages: string[] = [];
 	const notifications: Array<{ message: string; type?: string }> = [];
@@ -805,6 +911,7 @@ test("provider overflow before handoff generation leaves the context unchanged",
 		appendEntry() {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		hasUI: true,
 		ui: { notify(message: string, type?: string) { notifications.push({ message, type }); } },
 	};
@@ -813,16 +920,20 @@ test("provider overflow before handoff generation leaves the context unchanged",
 	const beforeCompact = handlers.get("session_before_compact");
 	assert.ok(beforeCompact);
 
+	const compactFailed = handlers.get("session_compact_failed");
+	assert.ok(compactFailed);
 	const result = await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never);
 	assert.deepEqual(result, { cancel: true });
 	assert.equal(messages.length, 0);
-	assert.deepEqual(notifications, [{
-		message: "Handoff compaction failed before context replacement: the context overflowed before the handoff could begin. The conversation was not compacted.",
-		type: "error",
-	}]);
+	await compactFailed({ reason: "overflow", aborted: true } as never, ctx as never);
+	assert.equal(messages.length, 1);
+	assert.deepEqual(await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never), { cancel: true });
+	await compactFailed({ reason: "overflow", aborted: true } as never, ctx as never);
+	assert.equal(messages.length, 1);
+	assert.deepEqual(notifications, []);
 });
 
-test("provider overflow during handoff generation fails the active orchestration", async () => {
+test("provider overflow does not interrupt an existing handoff", async () => {
 	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
 	const notifications: Array<{ message: string; type?: string }> = [];
 	const pi = {
@@ -843,10 +954,7 @@ test("provider overflow during handoff generation fails the active orchestration
 	const result = await beforeCompact({ reason: "overflow", branchEntries: [] } as never, ctx as never);
 
 	assert.deepEqual(result, { cancel: true });
-	assert.deepEqual(notifications, [{
-		message: "Handoff compaction failed before context replacement: the context overflowed before the handoff could begin. The conversation was not compacted.",
-		type: "error",
-	}]);
+	assert.deepEqual(notifications, []);
 });
 
 test("handoff holds Powerline until the continuation turn settles", async (t) => {
@@ -863,6 +971,7 @@ test("handoff holds Powerline until the continuation turn settles", async (t) =>
 		events: { emit(channel: string, data: unknown) { events.push({ channel, data }); } },
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		isIdle: () => true,
 		compact(options: { onComplete?: () => void }) { compaction = options; },
 		sessionManager: { getLeafId: () => "handoff-boundary", getSessionId: () => "session-1" },
 	};
