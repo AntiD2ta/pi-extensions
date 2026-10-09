@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { isWriteToolResult, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isContextOverflow } from "@earendil-works/pi-ai";
 
 import { requiredHandoffHeadings } from "./handoff-headings.ts";
 import { createHandoffPrompt } from "./handoff-prompt.ts";
@@ -11,9 +12,9 @@ const handoffBoundaryEntryType = "handoff-compaction-boundary";
 const neutralCompactionSummary = "The prior task state was externalized. Follow the next user message.";
 const maximumAutomaticHandoffTokens = 275_000;
 const coordinationChannel = "pi-handoff-compaction:v1";
-type HandoffTrigger = "manual" | "threshold";
+type HandoffTrigger = "manual" | "threshold" | "overflow";
 type HandoffOperation = {
-	phase: "awaiting-cancellation" | "awaiting-settlement" | "awaiting-replacement" | "awaiting-continuation" | "awaiting-continuation-settlement";
+	phase: "awaiting-cancellation" | "awaiting-handoff" | "awaiting-settlement" | "awaiting-replacement" | "awaiting-continuation" | "awaiting-continuation-settlement";
 	trigger: HandoffTrigger;
 	orchestrationId: string;
 	sessionId: string | undefined;
@@ -33,11 +34,28 @@ function validHandoff(handoffPath: string) {
 	try {
 		if (!lstatSync(handoffPath).isFile()) return false;
 		const content = readFileSync(handoffPath, "utf8").replaceAll("\r\n", "\n");
-		const headings = [...content.matchAll(/^## (.+)$/gm)];
-		return content.trim().length > 0
-			&& headings.length === requiredHandoffHeadings.length
-			&& headings.every((match, index) => match[1] === requiredHandoffHeadings[index]
-				&& content.slice((match.index ?? 0) + match[0].length, headings[index + 1]?.index).trim().length > 0);
+		let fence = "";
+		const outsideFences = content.split("\n").map((line) => {
+			const wasFenced = fence.length > 0;
+			const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+			if (marker) {
+				if (wasFenced) {
+					if (marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = "";
+				} else if (marker[1][0] !== "`" || !marker[2].includes("`")) {
+					fence = marker[1];
+				}
+			}
+			return wasFenced || fence ? " ".repeat(line.length) : line;
+		}).join("\n");
+		let nextHeading = 0;
+		const sections = [...outsideFences.matchAll(/^## (.+)$/gm)].filter((match) => {
+			if (match[1] !== requiredHandoffHeadings[nextHeading]) return false;
+			nextHeading++;
+			return true;
+		});
+		return sections.length === requiredHandoffHeadings.length
+			&& sections.every((match, index) => match[1] === requiredHandoffHeadings[index]
+				&& content.slice(match.index + match[0].length, sections[index + 1]?.index).replace(/^#{1,6} .+$/gm, "").trim().length > 0);
 	} catch {
 		return false;
 	}
@@ -47,7 +65,10 @@ function needsAutomaticHandoff(ctx: ExtensionContext) {
 	const usage = ctx.getContextUsage();
 	const contextWindow = ctx.model?.contextWindow;
 	if (usage?.tokens === null || usage === undefined || contextWindow === undefined) return false;
-	return usage.tokens >= Math.min(contextWindow * 0.9, maximumAutomaticHandoffTokens);
+	const maximumTokens = ctx.model?.id?.includes("claude") && contextWindow >= 1_000_000
+		? 500_000
+		: maximumAutomaticHandoffTokens;
+	return usage.tokens >= Math.min(contextWindow * 0.9, maximumTokens);
 }
 
 function sessionId(ctx: ExtensionContext): string | undefined {
@@ -119,16 +140,10 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 				},
 			};
 		}
-		if (event.reason === "overflow") {
-			automaticTriggerPending = false;
-			automaticHandoffAttempted = true;
-			reportHandoffFailure(ctx, "the context overflowed before the handoff could begin");
-			return { cancel: true };
-		}
 		if (operation !== undefined) return { cancel: true };
-		if (event.reason !== "manual" && event.reason !== "threshold") return;
-		if (event.reason === "threshold" && automaticHandoffAttempted) return { cancel: true };
-		automaticHandoffAttempted ||= event.reason === "threshold" || automaticTriggerPending;
+		if (event.reason !== "manual" && event.reason !== "threshold" && event.reason !== "overflow") return;
+		if (event.reason !== "manual" && automaticHandoffAttempted) return { cancel: true };
+		automaticHandoffAttempted ||= event.reason !== "manual" || automaticTriggerPending;
 		automaticTriggerPending = false;
 		if (!pi.getActiveTools().includes("write")) {
 			reportHandoffFailure(ctx, writeToolFailureReason());
@@ -160,6 +175,15 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 		return { cancel: true };
 	});
 
+	function startHandoff(ctx: ExtensionContext, handoff: HandoffOperation) {
+		handoff.phase = "awaiting-settlement";
+		try {
+			pi.sendUserMessage(createHandoffPrompt(handoff));
+		} catch {
+			reportHandoffFailure(ctx, "the handoff turn could not be started");
+		}
+	}
+
 	pi.on("session_compact_failed", (event, ctx) => {
 		if (operation?.phase !== "awaiting-cancellation" || event.reason !== operation.trigger) return;
 		if (!event.aborted) {
@@ -171,12 +195,8 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 			return;
 		}
 
-		operation.phase = "awaiting-settlement";
-		try {
-			pi.sendUserMessage(createHandoffPrompt(operation));
-		} catch {
-			reportHandoffFailure(ctx, "the handoff turn could not be started");
-		}
+		operation.phase = "awaiting-handoff";
+		if (ctx.isIdle()) startHandoff(ctx, operation);
 	});
 
 	pi.on("before_agent_start", (event) => {
@@ -240,14 +260,24 @@ export default function handoffCompaction(pi: ExtensionAPI) {
 
 	pi.on("agent_end", (event) => {
 		if (operation?.phase !== "awaiting-settlement" && operation?.phase !== "awaiting-continuation-settlement") return;
+		const allowOverflow = operation.phase === "awaiting-settlement" && operation.writeSucceeded;
 		const aborted = event.messages.some((message) => (
-			message.role === "assistant" && (message.stopReason === "aborted" || message.stopReason === "error")
+			message.role === "assistant" && (message.stopReason === "aborted"
+				|| (message.stopReason === "error" && !(allowOverflow && isContextOverflow(message))))
 		));
 		if (operation.phase === "awaiting-settlement") operation.handoffTurnAborted = aborted;
 		else operation.continuationTurnAborted = aborted;
 	});
 
-	pi.on("agent_settled", (_event, ctx) => {
+	pi.on("agent_settled", (event, ctx) => {
+		if (operation?.phase === "awaiting-handoff") {
+			if ("aborted" in event && event.aborted === true) {
+				reportHandoffFailure(ctx, "the original run was aborted");
+				return;
+			}
+			startHandoff(ctx, operation);
+			return;
+		}
 		if (operation?.phase === "awaiting-continuation-settlement") {
 			if (operation.continuationTurnAborted) {
 				reportHandoffFailure(ctx, "the continuation turn was aborted");

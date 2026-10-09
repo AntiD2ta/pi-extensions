@@ -173,6 +173,121 @@ for (const [mode, source] of [
 	});
 }
 
+for (const [trigger, rejectHandoff, overflowAfterWrite] of [["overflow", false, false], ["threshold", false, false], ["overflow", true, false], ["overflow", false, true], ["native threshold", false, false]] as const) {
+	test(`automatic ${trigger} ${rejectHandoff ? "preserves context when handoff is rejected" : overflowAfterWrite ? "resumes after a successful write followed by overflow" : "completes a verified handoff and resumes the task"}`, async (t) => {
+		const root = mkdtempSync(join(tmpdir(), "pi-handoff-overflow-"));
+		const agentDir = join(root, "agent");
+		mkdirSync(agentDir, { recursive: true });
+		t.after(() => rmSync(root, { recursive: true, force: true }));
+		let handoffPath: string | undefined;
+		t.after(() => { if (handoffPath) rmSync(handoffPath, { force: true }); });
+
+		const faux = fauxProvider({ provider: `pi-handoff-${trigger}`, models: [{ id: "test-model", contextWindow: 10_000 }] });
+		let resolveContinuation: (() => void) | undefined;
+		const continuation = new Promise<void>((resolve) => { resolveContinuation = resolve; });
+		faux.setResponses([
+			trigger === "overflow"
+				? fauxAssistantMessage("", { stopReason: "error", errorMessage: "context length exceeded" })
+				: trigger === "native threshold"
+					? fauxAssistantMessage(fauxToolCall("write", { path: join(root, "preflight.txt"), content: "x".repeat(28_000) }), { stopReason: "toolUse" })
+					: fauxAssistantMessage("threshold-token ".repeat(3_000)),
+			...(trigger === "native threshold" ? [fauxAssistantMessage("Original run settled.")] : []),
+			(context) => {
+				handoffPath = messageText(context.messages.at(-1)?.content).match(/## Handoff path\n\n(.+)/)?.[1];
+				assert.ok(handoffPath);
+				if (rejectHandoff) return fauxAssistantMessage("", { stopReason: "error", errorMessage: "context length exceeded" });
+				return fauxAssistantMessage(fauxToolCall("write", {
+					path: handoffPath,
+					content: handoffDocument().replace("## Initial prompt\n\ncontent", "## Initial prompt\n\nOriginal task\n\n## Preflight\n\nInspect the checkout."),
+				}), { stopReason: "toolUse" });
+			},
+			overflowAfterWrite
+				? fauxAssistantMessage("", { stopReason: "error", errorMessage: "context length exceeded" })
+				: fauxAssistantMessage("Handoff complete."),
+			(context) => {
+				assert.equal(messageText(context.messages.at(-1)?.content), `Read and follow ${handoffPath}`);
+				resolveContinuation?.();
+				return fauxAssistantMessage("Task resumed.");
+			},
+		]);
+		const settingsManager = SettingsManager.inMemory({ compaction: { enabled: true, reserveTokens: trigger === "native threshold" ? 3_000 : 1_000, keepRecentTokens: 1 }, retry: { enabled: false } });
+		const nativeTriggers: Array<{ reason: string; idle: boolean; tokens: number | null | undefined }> = [];
+		const modelRuntime = await ModelRuntime.create({
+			authPath: join(agentDir, "auth.json"),
+			modelsPath: null,
+			modelsStorePath: join(agentDir, "models-store.json"),
+			refreshOnCreate: false,
+		});
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: root,
+			agentDir,
+			settingsManager,
+			extensionFactories: [(pi) => {
+				pi.registerProvider(faux.provider);
+				pi.on("session_before_compact", (event, ctx) => {
+					if (trigger === "native threshold" && !handoffPath) {
+						nativeTriggers.push({ reason: event.reason, idle: ctx.isIdle(), tokens: ctx.getContextUsage()?.tokens });
+					}
+				});
+			}, handoffExtension],
+			noSkills: true,
+			noPromptTemplates: true,
+			noThemes: true,
+			noContextFiles: true,
+		});
+		await resourceLoader.reload();
+		const manager = SessionManager.inMemory(root);
+		manager.appendMessage({ role: "user", content: "Earlier request", timestamp: Date.now() });
+		manager.appendMessage(fauxAssistantMessage("Earlier response"));
+		const { session } = await createAgentSession({
+			cwd: root,
+			agentDir,
+			model: faux.getModel(),
+			modelRuntime,
+			resourceLoader,
+			settingsManager,
+			sessionManager: manager,
+			tools: ["write"],
+		});
+		t.after(() => session.dispose());
+		const notifications: string[] = [];
+		let resolveFailure: (() => void) | undefined;
+		const failure = new Promise<void>((resolve) => { resolveFailure = resolve; });
+		await session.bindExtensions({
+			mode: "tui",
+			onError: (error) => { notifications.push(JSON.stringify(error)); },
+			uiContext: { notify(message: string) { notifications.push(message); resolveFailure?.(); } } as unknown as ExtensionUIContext,
+		});
+		await session.prompt("Original task");
+		await Promise.race([
+			rejectHandoff ? failure : continuation,
+			new Promise((_, reject) => setTimeout(() => reject(new Error(`${trigger} handoff did not resume: ${notifications.join("; ")}`)), 2_000)),
+		]);
+		await session.waitForIdle();
+
+		if (rejectHandoff) {
+			assert.equal(manager.getEntries().some((entry) => entry.type === "compaction"), false);
+			assert.match(JSON.stringify(manager.buildSessionContext()), /Earlier request/);
+			assert.match(JSON.stringify(manager.buildSessionContext()), /Original task/);
+			assert.deepEqual(notifications, ["Handoff compaction failed before context replacement: the handoff turn was aborted. The conversation was not compacted."]);
+			assert.equal(faux.state.callCount, 2);
+			return;
+		}
+		assert.ok(handoffPath, `${trigger} should start handoff generation`);
+		assert.ok(manager.getEntries().some((entry) => entry.type === "compaction" && entry.fromHook));
+		assert.deepEqual(notifications, []);
+		assert.equal(faux.state.callCount, trigger === "native threshold" ? 5 : 4);
+		if (trigger === "native threshold") {
+			assert.ok(nativeTriggers.length > 0);
+			assert.equal(nativeTriggers[0].reason, "threshold");
+			assert.equal(nativeTriggers[0].idle, false);
+			assert.ok(nativeTriggers[0].tokens != null && nativeTriggers[0].tokens >= 7_000 && nativeTriggers[0].tokens < 9_000);
+		}
+		assert.match(JSON.stringify(manager.buildSessionContext()), /Task resumed\./);
+		assert.doesNotMatch(JSON.stringify(manager.buildSessionContext()), /context length exceeded/);
+	});
+}
+
 test("Powerline persists acknowledged handoff input and delivers it FIFO after continuation", async (t) => {
 	const root = mkdtempSync(join(tmpdir(), "pi-handoff-powerline-input-"));
 	const agentDir = join(root, "agent");
