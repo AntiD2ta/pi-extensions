@@ -24,6 +24,8 @@ interface CardState {
 	compactExitCode?: number;
 	compactCalls?: NestedCall[];
 	compactMutation?: { created: boolean; added?: number; removed?: number };
+	/** Pi's real `server/tool`; the tool name is sanitized and may be hashed. */
+	compactMcpLabel?: string;
 }
 
 export const COMPACT_BY_DEFAULT: ReadonlySet<string> = new Set([
@@ -40,8 +42,8 @@ export const COMPACT_BY_DEFAULT: ReadonlySet<string> = new Set([
 	"fetch_content",
 	"get_search_content",
 ]);
-/** Pi's built-in MCP names tools `mcp__<server>__<tool>`; pi-mcp-adapter's `mcp__<server>` proxies do not match. */
-const BUILTIN_MCP_TOOL = /^mcp__(.+?)__(.+)$/;
+/** Pi's built-in MCP names tools `mcp__<server>__<tool>`; pi-mcp-adapter's usual `mcp__<server>` proxies do not match. */
+const BUILTIN_MCP_TOOL = /^mcp__(?<server>.+?)__(?<tool>.+)$/;
 const TAIL_LINES = 3;
 const CALL_ARGS_CHARS = 80;
 const SCRIPT_HEADER = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOutput:\n$/;
@@ -224,8 +226,12 @@ function toolHeader(toolName: string, args: Args, context: RenderContext, state:
 			return header("Loaded", PALETTE.web, `${theme.fg("muted", "search result")} ${strong(theme, PALETTE.count, str(args.responseId) ?? "")}${detail}`);
 		}
 		default: {
-			const mcp = BUILTIN_MCP_TOOL.exec(toolName);
-			if (mcp) return header("Called", PALETTE.mcp, `${strong(theme, PALETTE.command, `${mcp[1]}/${mcp[2]}`)} ${theme.fg("muted", JSON.stringify(args))}`);
+			const mcp = BUILTIN_MCP_TOOL.exec(toolName)?.groups;
+			if (mcp) {
+				const json = Object.keys(args).length > 0 ? JSON.stringify(args) : "";
+				const shown = json.length > CALL_ARGS_CHARS ? `${json.slice(0, CALL_ARGS_CHARS - 3)}...` : json;
+				return header("Called", PALETTE.mcp, `${strong(theme, PALETTE.command, state.compactMcpLabel ?? `${mcp.server}/${mcp.tool}`)}${shown ? ` ${theme.fg("muted", shown)}` : ""}`);
+			}
 			const target = Object.values(args).find((value) => typeof value === "string") as string | undefined;
 			return header(toolName, PALETTE.other, theme.fg("muted", (target ?? JSON.stringify(args) ?? "").replace(/\s+/g, " ")));
 		}
@@ -327,6 +333,8 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 			return inToolBox(theme, context, "bottom", owner.renderResult(result, options, theme, { ...context, lastComponent: undefined }));
 		}
 		const state = context.state as CardState;
+		const mcp = result.details as { server?: unknown; tool?: unknown } | undefined;
+		if (typeof mcp?.server === "string" && typeof mcp.tool === "string") state.compactMcpLabel = `${mcp.server}/${mcp.tool}`;
 		if ((toolName === "edit" || toolName === "write") && owner?.renderResult) {
 			// The owner's diff body keeps its own colors; the header already carries its summary rows.
 			const body = owner.renderResult(result, options, theme, { ...context, lastComponent: undefined });

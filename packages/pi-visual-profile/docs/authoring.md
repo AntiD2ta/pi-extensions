@@ -6,6 +6,6 @@ The renderer order is documented in [Rendering](rendering.md). Register an expli
 
 Keep owner tokens private. Claim a UI area once, release the same token, and do not release another extension's claim. This allows Pi to restore the previous owner. Do not claim the footer or queue from a profile-aware extension. Powerline owns them.
 
-For MCP presentation, use the adapter's explicit presentation protocol. If an MCP or third-party renderer already owns a tool, preserve it. For mutation tools, preserve `pi-tool-display` when it provides an explicit self renderer. The compact style is the one exception: on request, it replaces the renderers of the tools listed in [Rendering](rendering.md#compact-cards), including those from `pi-tool-display` and `pi-web-access`.
+For MCP presentation, use the adapter's explicit presentation protocol. If an MCP or third-party renderer already owns a tool, preserve it. For mutation tools, preserve `pi-tool-display` when it provides an explicit self renderer. The compact style is the one exception: on request, it replaces the renderers of the tools listed in [Rendering](rendering.md#compact-cards), including those from `pi-tool-display`, `pi-web-access`, and Pi's built-in MCP tools.
 
 Test against an older compatible Pi version. Verify that missing optional hooks leave native output intact, then run `/visual-profile doctor` to confirm the reported capability state.

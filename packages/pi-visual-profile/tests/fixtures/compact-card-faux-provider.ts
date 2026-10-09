@@ -2,6 +2,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 /**
@@ -57,8 +58,19 @@ export default function (pi: ExtensionAPI) {
 	webTool("web_search", () => `${results}\nFull results are stored as responseId "trial-results".`);
 	webTool("fetch_content", () => { throw new Error("Could not fetch https://example.com: trial stand-in"); });
 	webTool("get_search_content", () => results);
-	// Named like a built-in MCP tool, so it gets the MCP header.
-	webTool("mcp__trial__list_items", () => Array.from({ length: 6 }, (_, index) => `TRI-${index + 1} trial item`).join("\n"));
+	// Shaped like a built-in MCP tool: its own renderers, which compact replaces, and Pi's real names in details.
+	pi.registerTool({
+		name: "mcp__trial__list_items",
+		label: "trial/list-items",
+		description: "Trial stand-in for a built-in MCP tool.",
+		parameters: Type.Object({}, { additionalProperties: true }),
+		async execute() {
+			const text = Array.from({ length: 6 }, (_, index) => `TRI-${index + 1} trial item`).join("\n");
+			return { content: [{ type: "text", text }], details: { server: "trial", tool: "list-items" } };
+		},
+		renderCall: () => new Text("owner call", 0, 0),
+		renderResult: () => new Text("owner result", 0, 0),
+	});
 	// A classifier with fixed usage, so the codemode card shows cost and tokens.
 	pi.registerProvider("compact-card-scorer", {
 		baseUrl: "https://classifier.invalid/v1",
