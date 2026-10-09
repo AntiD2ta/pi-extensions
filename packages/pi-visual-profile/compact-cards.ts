@@ -7,7 +7,7 @@ export type ToolRenderers = Pick<ToolDefinition, "renderShell" | "renderCall" | 
 type RenderCall = NonNullable<ToolDefinition["renderCall"]>;
 type RenderResult = NonNullable<ToolDefinition["renderResult"]>;
 type RenderContext = Parameters<RenderCall>[2] & { durationMs?: number; outputPad?: number };
-type CardTheme = Pick<Theme, "fg" | "bold">;
+type CardTheme = Pick<Theme, "fg" | "bg" | "bold">;
 type Args = Record<string, unknown>;
 
 interface NestedCall {
@@ -15,7 +15,6 @@ interface NestedCall {
 	args: string;
 	status: "running" | "ok" | "error" | "cancelled";
 	durationMs?: number;
-	error?: string;
 	cost?: number;
 	tokens?: number;
 }
@@ -27,7 +26,7 @@ interface CardState {
 	compactMutation?: { created: boolean; added?: number; removed?: number };
 }
 
-const COMPACT_BY_DEFAULT = new Set([
+export const COMPACT_BY_DEFAULT: ReadonlySet<string> = new Set([
 	"bash",
 	"powershell",
 	"read",
@@ -54,16 +53,21 @@ export function rendererChoice(toolName: string, owner: ToolRenderers | undefine
 	return choices[toolName] ?? (COMPACT_BY_DEFAULT.has(toolName) || !ownRenderer ? "compact" : "owner");
 }
 
-export function compactByDefault(): string[] {
-	return [...COMPACT_BY_DEFAULT];
-}
-
 function lines(render: (width: number) => string[]): Component {
 	return { render, invalidate() {} };
 }
 
-function padded(component: Component, pad: number): Component {
-	return lines((width) => component.render(Math.max(1, width - pad)).map((line) => `${" ".repeat(pad)}${line}`));
+/** Paints the tool background Pi's shell would draw, since compact rows render their own shell. */
+function onToolBackground(theme: CardTheme, isError: boolean, indent: number, render: (width: number) => string[]): Component {
+	return lines((width) => {
+		const bodyWidth = Math.max(1, width - indent);
+		return render(bodyWidth).map((line) =>
+			`${" ".repeat(indent)}${theme.bg(isError ? "toolErrorBg" : "toolSuccessBg", line + " ".repeat(Math.max(0, bodyWidth - visibleWidth(line))))}`);
+	});
+}
+
+function running(context: RenderContext): boolean {
+	return !context.executionStarted || context.isPartial;
 }
 
 function str(value: unknown): string | undefined {
@@ -83,10 +87,6 @@ function formatDuration(ms: number | undefined): string | undefined {
 
 function formatCost(cost: number): string {
 	return `$${cost >= 0.01 ? cost.toFixed(2) : cost.toPrecision(2)}`;
-}
-
-function formatTokens(tokens: number): string {
-	return tokens < 1000 ? `${tokens} tok` : `${(tokens / 1000).toFixed(1)}k tok`;
 }
 
 function callIcon(call: NestedCall, theme: CardTheme): string {
@@ -112,7 +112,8 @@ function textOutput(toolName: string, result: AgentToolResult<unknown>): string 
 	const first = content[0];
 	if (toolName === "codemode" && first?.type === "text" && SCRIPT_HEADER.test(first.text)) content = content.slice(1);
 	const text = content.map((block) => block.type === "text" ? block.text : `[image: ${block.mimeType}]`).join("\n");
-	return text.replace(/\r/g, "").replace(/\t/g, "   ").trimEnd();
+	// Raw escapes and control bytes from tool output would corrupt the terminal.
+	return stripTerminalSequences(text).replace(/\t/g, "   ").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").trimEnd();
 }
 
 type Color = Parameters<CardTheme["fg"]>[0];
@@ -156,7 +157,7 @@ interface Header {
 function shellHeader(args: Args, context: RenderContext, state: CardState, theme: CardTheme): Header {
 	const [first = "", ...more] = (str(args.command) ?? "").split("\n");
 	const failed = context.isError || (state.compactExitCode ?? 0) !== 0;
-	const verb = !context.executionStarted || context.isPartial
+	const verb = running(context)
 		? "Running"
 		: failed
 			? state.compactExitCode === undefined ? "Failed" : `Failed (exit ${state.compactExitCode})`
@@ -214,39 +215,44 @@ function toolHeader(toolName: string, args: Args, context: RenderContext, state:
 }
 
 function mutationHeader(toolName: string, args: Args, context: RenderContext, state: CardState, theme: CardTheme, path: string): Header {
-	const running = !context.executionStarted || context.isPartial;
+	const busy = running(context);
 	const mutation = state.compactMutation;
-	const name = toolName === "edit" ? "Edit" : "Write";
-	const verb = running
-		? `${name.slice(0, -1)}ing`
+	const write = toolName === "write";
+	const verb = busy
+		? write ? "Writing" : "Editing"
 		: context.isError
-			? `${name} failed`
-			: toolName === "write" && mutation?.created ? "Added" : "Edited";
-	const added = mutation?.added ?? (toolName === "write" && mutation?.created ? (str(args.content) ?? "").replace(/\n$/, "").split("\n").length : undefined);
-	const counts = added === undefined || running || context.isError
+			? write ? "Write failed" : "Edit failed"
+			: write && mutation?.created ? "Added" : write && !mutation ? "Wrote" : "Edited";
+	const added = mutation?.added ?? (write && mutation?.created ? (str(args.content) ?? "").replace(/\n$/, "").split("\n").length : undefined);
+	const counts = added === undefined || busy || context.isError
 		? ""
 		: ` ${theme.fg("dim", "(")}${theme.fg("toolDiffAdded", `+${added}`)} ${theme.fg("toolDiffRemoved", `-${mutation?.removed ?? 0}`)}${theme.fg("dim", ")")}`;
 	return { verb, verbColor: PALETTE.edit, target: `${path}${counts}`, more: [], meta: [] };
 }
 
-/** Counts from pi-tool-display's summary row, or from Pi's edit diff when another renderer drew it. */
+/**
+ * Counts from pi-tool-display's summary rows, or from Pi's edit diff when another renderer drew it.
+ * ponytail: pi-tool-display exposes counts only in rendered text; read details if it ever adds them.
+ */
 function readMutation(rendered: string[], details: unknown): CardState["compactMutation"] {
+	let mutation: CardState["compactMutation"];
 	for (const line of rendered) {
 		const match = MUTATION_SUMMARY.exec(stripTerminalSequences(line));
-		if (match?.[1]) return { created: false, added: Number(match[1]), removed: Number(match[2]) };
-		if (match?.[3]) return { created: match[3] === "created" };
+		if (match?.[1]) mutation = { created: mutation?.created ?? false, added: Number(match[1]), removed: Number(match[2]) };
+		else if (match?.[3]) mutation = { ...mutation, created: match[3] === "created" };
 	}
+	if (mutation) return mutation;
 	const diff = (details as { diff?: unknown } | undefined)?.diff;
 	if (typeof diff !== "string") return undefined;
+	// Pi pads line numbers, so a row reads `+ 9 text` as well as `+10 text`.
 	const rows = diff.split("\n");
-	return { created: false, added: rows.filter((row) => /^\+\d/.test(row)).length, removed: rows.filter((row) => /^-\d/.test(row)).length };
+	return { created: false, added: rows.filter((row) => /^\+\s*\d/.test(row)).length, removed: rows.filter((row) => /^-\s*\d/.test(row)).length };
 }
 
 function codemodeHeader(context: RenderContext, state: CardState, theme: CardTheme): Header {
 	const calls = state.compactCalls ?? [];
-	const running = !context.executionStarted || context.isPartial;
 	const failed = context.isError || calls.some((call) => call.status === "error");
-	const status = running ? theme.fg("warning", "…") : failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+	const status = running(context) ? theme.fg("warning", "…") : failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
 	const cost = calls.reduce((sum, call) => sum + (call.cost ?? 0), 0);
 	const tokens = calls.reduce((sum, call) => sum + (call.tokens ?? 0), 0);
 	const duration = formatDuration(context.durationMs);
@@ -258,14 +264,14 @@ function codemodeHeader(context: RenderContext, state: CardState, theme: CardThe
 		meta: [
 			`${strong(theme, PALETTE.count, countLabel(calls.length, "call"))} ${status}`,
 			...(cost > 0 ? [strong(theme, PALETTE.cost, formatCost(cost))] : []),
-			...(tokens > 0 ? [strong(theme, PALETTE.tokens, formatTokens(tokens))] : []),
+			...(tokens > 0 ? [strong(theme, PALETTE.tokens, tokens < 1000 ? `${tokens} tok` : `${(tokens / 1000).toFixed(1)}k tok`)] : []),
 			...(duration ? [theme.fg("dim", duration)] : []),
 		],
 	};
 }
 
 function bulletColor(context: RenderContext, state: CardState): "warning" | "error" | "success" {
-	if (!context.executionStarted || context.isPartial) return "warning";
+	if (running(context)) return "warning";
 	const failedCall = state.compactCalls?.some((call) => call.status === "error");
 	return context.isError || failedCall || (state.compactExitCode ?? 0) !== 0 ? "error" : "success";
 }
@@ -280,7 +286,8 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 		const context = renderContext as RenderContext;
 		const pad = context.outputPad ?? 1;
 		if (isCodemode && context.expanded && owner?.renderCall) {
-			return padded(owner.renderCall(args, theme, { ...context, lastComponent: undefined }), pad);
+			const call = owner.renderCall(args, theme, { ...context, lastComponent: undefined });
+			return onToolBackground(theme, context.isError, pad, (width) => call.render(width));
 		}
 		const state = context.state as CardState;
 		return lines((width) => {
@@ -299,20 +306,17 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 		const context = renderContext as RenderContext;
 		const pad = context.outputPad ?? 1;
 		if (isCodemode && options.expanded && owner?.renderResult) {
-			return padded(owner.renderResult(result, options, theme, { ...context, lastComponent: undefined }), pad);
+			const body = owner.renderResult(result, options, theme, { ...context, lastComponent: undefined });
+			return onToolBackground(theme, context.isError, pad, (width) => body.render(width));
 		}
 		const state = context.state as CardState;
 		if ((toolName === "edit" || toolName === "write") && owner?.renderResult) {
-			// The owner's diff body, with its own colors, on the tool background Pi's shell would paint.
+			// The owner's diff body keeps its own colors; the header already carries its summary rows.
 			const body = owner.renderResult(result, options, theme, { ...context, lastComponent: undefined });
+			// Any wide render shows the summary rows; their counts do not depend on width.
 			state.compactMutation = readMutation(body.render(200), result.details);
-			const background = (text: string) => theme.bg(context.isError ? "toolErrorBg" : "toolSuccessBg", text);
-			return lines((width) => {
-				const bodyWidth = Math.max(1, width - pad - 2);
-				return body.render(bodyWidth)
-					.filter((line) => !MUTATION_SUMMARY.test(stripTerminalSequences(line)))
-					.map((line) => `${" ".repeat(pad + 2)}${background(line + " ".repeat(Math.max(0, bodyWidth - visibleWidth(line))))}`);
-			});
+			return onToolBackground(theme, context.isError, pad + 2, (width) =>
+				body.render(width).filter((line) => !MUTATION_SUMMARY.test(stripTerminalSequences(line))));
 		}
 		let output = textOutput(toolName, result);
 		if (toolName === "bash" || toolName === "powershell") {
@@ -330,16 +334,17 @@ export function createCompactRenderers(toolName: string, owner: ToolRenderers | 
 		const color = context.isError ? "error" : "toolOutput";
 		const expandKey = keyText("app.tools.expand");
 
+		const lead = visibleWidth(elbow) + 1;
 		return lines((width) => {
 			const indent = " ".repeat(pad);
-			const bodyWidth = Math.max(1, width - pad - 4);
+			const bodyWidth = Math.max(1, width - pad - 2 - lead);
 			const rows = calls.map((call) => truncateToWidth(`${indent}  ${formatCall(call, theme)}`, width));
 			const shown = options.expanded
 				? outputLines.flatMap((line) => wrapTextWithAnsi(theme.fg(color, line), bodyWidth))
 				: tail.map((line) => truncateToWidth(theme.fg(color, line), bodyWidth));
 			const hidden = options.expanded ? 0 : outputLines.length - tail.length;
-			const body = shown.map((line, index) => `${indent}  ${index === 0 ? `${theme.fg("dim", elbow)} ` : "  "}${line}`);
-			if (hidden > 0) body.push(`${indent}    ${theme.fg("muted", `+ ${countLabel(hidden, "line")} (${expandKey})`)}`);
+			const body = shown.map((line, index) => `${indent}  ${index === 0 ? `${theme.fg("dim", elbow)} ` : " ".repeat(lead)}${line}`);
+			if (hidden > 0) body.push(truncateToWidth(`${indent}  ${" ".repeat(lead)}${theme.fg("muted", `+ ${countLabel(hidden, "line")} (${expandKey})`)}`, width));
 			return [...rows, ...body];
 		});
 	};

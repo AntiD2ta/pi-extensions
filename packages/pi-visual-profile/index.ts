@@ -96,6 +96,11 @@ export default function (pi: ExtensionAPI) {
 		return createCompactRenderers(toolName, owner, compactConfig.glyphMode);
 	});
 
+	// Compact cards need `registerToolRenderer`; the other styles need the fork's profile hook.
+	function cardsSupported(style: VisualProfileConfig["toolCardStyle"]): boolean {
+		return Boolean(style === "compact" ? profileAPI.registerToolRenderer : profileAPI.activateToolRendererProfile);
+	}
+
 	function syncMcpPresentation(config: VisualProfileConfig): void {
 		const active = config.enabled;
 		const request: McpPresentationRequest = {
@@ -157,7 +162,7 @@ export default function (pi: ExtensionAPI) {
 			if (command === "enable" || command === "disable") {
 				if (!save(ctx, { enabled: command === "enable" }, local)) return;
 				syncPresentation(ctx);
-				const unavailable = command === "enable" && !profileAPI.activateToolRendererProfile ? " Tool cards require a newer Pi build." : "";
+				const unavailable = command === "enable" && !cardsSupported(effectiveConfig(ctx).toolCardStyle) ? " Tool cards require a newer Pi build." : "";
 				ctx.ui.notify(`Visual profile ${command}d${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
@@ -170,8 +175,7 @@ export default function (pi: ExtensionAPI) {
 			if (command === "cards" && (value === "boxed" || value === "minimal" || value === "compact")) {
 				if (!save(ctx, { toolCardStyle: value }, local)) return;
 				syncPresentation(ctx);
-				const supported = value === "compact" ? profileAPI.registerToolRenderer : profileAPI.activateToolRendererProfile;
-				const unavailable = !supported ? " Tool cards require a newer Pi build." : "";
+				const unavailable = !cardsSupported(value) ? " Tool cards require a newer Pi build." : "";
 				ctx.ui.notify(`Tool cards set to ${value}${local ? " locally" : " globally"}.${unavailable}`, unavailable ? "warning" : "info");
 				return;
 			}
