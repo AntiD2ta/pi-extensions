@@ -194,6 +194,17 @@ test("a codemode card totals its calls, cost, tokens, and time and lists every c
 	]);
 });
 
+test("rows rebuilt from history after a reload show their final state", () => {
+	// Pi rebuilds history rows without marking execution started.
+	const lines = renderRow("bash", { command: "ls" }, "a", { executionStarted: false });
+	const failed = createCompactRenderers("fetch_content", undefined, "unicode");
+	const recording = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (text: string) => text } as unknown as Theme;
+	const header = failed.renderCall!({ url: "https://x" }, recording, context({ executionStarted: false, isError: true }) as never).render(200)[0];
+
+	assert.equal(lines[0], "• Ran ls");
+	assert.match(header, /^<error>•<\/> <error>Fetched<\/>/);
+});
+
 test("a running edit or write names its action", () => {
 	assert.equal(renderRow("edit", { path: "a.ts" }, "", { isPartial: true })[0], "• Editing a.ts");
 	assert.equal(renderRow("write", { path: "a.ts" }, "", { isPartial: true })[0], "• Writing a.ts");
