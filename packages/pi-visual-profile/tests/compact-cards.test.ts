@@ -168,6 +168,71 @@ test("a codemode card totals its calls, cost, tokens, and time and lists every c
 	]);
 });
 
+test("a running edit or write names its action", () => {
+	assert.equal(renderRow("edit", { path: "a.ts" }, "", { isPartial: true })[0], "• Editing a.ts");
+	assert.equal(renderRow("write", { path: "a.ts" }, "", { isPartial: true })[0], "• Writing a.ts");
+});
+
+test("a failed call turns the bullet red", () => {
+	const recording = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (text: string) => text } as unknown as Theme;
+	const call = createCompactRenderers("read", undefined, "unicode").renderCall!({ path: "a.ts" }, recording, context({ isError: true }) as never);
+
+	assert.match(call.render(200)[0], /^<error>•<\/>/);
+});
+
+test("ascii rows never exceed the terminal width", () => {
+	const renderers = createCompactRenderers("bash", undefined, "ascii");
+	const ctx = context({ args: { command: "ls" } });
+	const result = renderers.renderResult!({ content: [{ type: "text", text: `${"x".repeat(60)}\n1\n2\n3\n4` }], details: undefined }, { expanded: false, isPartial: false }, theme, ctx as never);
+
+	for (const line of result.render(12)) assert.ok(stripTerminalSequences(line).length <= 12, line);
+});
+
+test("output escape sequences and control bytes do not reach the terminal", () => {
+	const lines = renderRow("bash", { command: "x" }, "\u001b[31mred\u001b[0m\u0007 done");
+
+	assert.equal(lines[1], "  └ red done");
+});
+
+test("an edit card counts Pi diff rows with padded line numbers", () => {
+	const owner: ToolRenderers = { renderResult: () => new Text("body", 0, 0) };
+	const diff = "+ 9 added\n+10 added\n- 9 removed\n  8 context";
+
+	assert.equal(renderRow("edit", { path: "a.ts" }, "ok", {}, { diff }, owner)[0], "• Edited a.ts (+2 -1)");
+});
+
+test("an overwrite reads its counts from the diff row after the action row", () => {
+	const owner: ToolRenderers = { renderResult: () => new Text("↳ overwritten\n↳ diff +3 -2\nbody", 0, 0) };
+
+	assert.equal(renderRow("write", { path: "a.ts", content: "x" }, "ok", {}, undefined, owner)[0], "• Edited a.ts (+3 -2)");
+});
+
+test("a write without a known previous state says Wrote", () => {
+	assert.equal(renderRow("write", { path: "a.ts", content: "x" }, "Successfully wrote 1 bytes")[0], "• Wrote a.ts");
+});
+
+test("a codemode card without token counts omits the token segment", () => {
+	const calls = [{ id: "c/1", name: "models.classify", args: "s/j", status: "ok", durationMs: 5, cost: 0.002 }];
+
+	assert.equal(renderRow("codemode", { code: "x" }, "", {}, { calls })[0], "• codemode · 1 call ✓ · $0.0020");
+});
+
+test("an expanded card shows every output line", () => {
+	const output = Array.from({ length: 6 }, (_, index) => `line ${index + 1}`).join("\n");
+
+	assert.deepEqual(renderRow("bash", { command: "x" }, output, { expanded: true }).slice(1), [
+		"  └ line 1", "    line 2", "    line 3", "    line 4", "    line 5", "    line 6",
+	]);
+});
+
+test("an expanded codemode card keeps the tool background", () => {
+	const recording = { fg: (_color: string, text: string) => text, bg: (color: string, text: string) => `<${color}>${text}</>`, bold: (text: string) => text } as unknown as Theme;
+	const renderers = createCompactRenderers("codemode", ownRenderer, "unicode");
+	const call = renderers.renderCall!({ code: "x" }, recording, context({ expanded: true }) as never);
+
+	assert.deepEqual(call.render(14), ["<toolSuccessBg>owner call    </>"]);
+});
+
 test("an expanded codemode card is codemode's own rendering", () => {
 	const lines = renderRow("codemode", { code: "x" }, "out", { expanded: true }, codemodeDetails, ownRenderer);
 
@@ -177,10 +242,14 @@ test("an expanded codemode card is codemode's own rendering", () => {
 test("the profile resolver applies compact cards only while compact style is enabled", async (t) => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-visual-profile-test-"));
 	const previousHome = process.env.HOME;
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	process.env.HOME = directory;
+	delete process.env.PI_CODING_AGENT_DIR;
 	t.after(() => {
 		if (previousHome === undefined) delete process.env.HOME;
 		else process.env.HOME = previousHome;
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		rmSync(directory, { recursive: true, force: true });
 	});
 	const configDirectory = join(directory, ".pi", "agent", "visual-profile");

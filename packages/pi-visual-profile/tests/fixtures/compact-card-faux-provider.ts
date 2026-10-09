@@ -2,10 +2,11 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 /**
  * Trial of compact cards: run from the pi-extensions checkout with `-t +codemode` and a disposable HOME.
- * `write` and `edit` touch only `$HOME/scratch`. The web steps need pi-web-access and its configuration.
+ * `write` and `edit` touch only `$HOME/scratch`. The web tools are offline stand-ins, so load it without pi-web-access.
  */
 export default function (pi: ExtensionAPI) {
 	const faux = fauxProvider({
@@ -26,12 +27,7 @@ export default function (pi: ExtensionAPI) {
 		step("edit", { path: scratch, edits: [{ oldText: "\t\"second\",\n", newText: "\t\"second, edited\",\n\t\"third\",\n" }] }),
 		step("web_search", { query: "pi coding agent earendil" }),
 		step("fetch_content", { url: "https://example.com" }),
-		// The stored results id is only known after web_search runs.
-		(context) => {
-			const results = JSON.stringify(context.messages.filter((message) => message.role === "toolResult"));
-			const responseId = /response ?id\W+([\w-]{6,})/i.exec(results)?.[1] ?? "unknown";
-			return fauxAssistantMessage(fauxToolCall("get_search_content", { responseId, queryIndex: 0 }), { stopReason: "toolUse" });
-		},
+		step("get_search_content", { responseId: "trial-results", queryIndex: 0 }),
 		step("codemode", {
 			code: [
 				"const listing = await tools.bash({ command: 'ls packages' });",
@@ -46,6 +42,20 @@ export default function (pi: ExtensionAPI) {
 		fauxAssistantMessage("The scripted tool calls are complete. Press ctrl+o to compare expanded cards."),
 	]);
 	pi.registerProvider(faux.provider);
+	// Offline stand-ins named like pi-web-access's tools; fetch_content fails to show a failed row.
+	const webTool = (name: string, run: () => string) => pi.registerTool({
+		name,
+		label: name,
+		description: `Trial stand-in for ${name}.`,
+		parameters: Type.Object({}, { additionalProperties: true }),
+		async execute() {
+			return { content: [{ type: "text", text: run() }], details: {} };
+		},
+	});
+	const results = Array.from({ length: 8 }, (_, index) => `${index + 1}. https://pi.dev/docs/page-${index + 1}`).join("\n");
+	webTool("web_search", () => `${results}\nFull results are stored as responseId "trial-results".`);
+	webTool("fetch_content", () => { throw new Error("Could not fetch https://example.com: trial stand-in"); });
+	webTool("get_search_content", () => results);
 	// A classifier with fixed usage, so the codemode card shows cost and tokens.
 	pi.registerProvider("compact-card-scorer", {
 		baseUrl: "https://classifier.invalid/v1",

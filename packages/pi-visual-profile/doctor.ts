@@ -1,4 +1,4 @@
-import { compactByDefault } from "./compact-cards.ts";
+import { COMPACT_BY_DEFAULT } from "./compact-cards.ts";
 import type { VisualProfileConfig } from "./config.ts";
 
 export interface McpPresentationResult {
@@ -59,7 +59,7 @@ export function formatDoctor(report: DoctorReport): string {
 		"",
 		"Compact tool renderers",
 		`  resolver: ${report.toolRendererResolverSupported ? "available" : "unavailable (needs Pi 1.1)"}`,
-		`  compact by default: ${compactByDefault().join(", ")}`,
+		`  compact by default: ${[...COMPACT_BY_DEFAULT].join(", ")}`,
 		"  other tools: compact unless the tool has its own renderer",
 		`  overrides: ${Object.entries(config.renderers).map(([tool, choice]) => `${tool}=${choice}`).join(", ") || "none"}`,
 		"",

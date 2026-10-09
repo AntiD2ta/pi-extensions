@@ -9,7 +9,7 @@ Pi chooses a tool renderer in this order:
 3. Pi's built-in renderer.
 4. Pi's generic fallback.
 
-An explicit renderer stays in control, except where the compact style replaces it (see below). The profile frames eligible built-in cards but does not replace self-rendered tools. `pi-tool-display` remains authoritative for `edit` and `write` when it is enabled. The profile supplies its semantic edit card only when that renderer is absent or disabled.
+An explicit renderer stays in control, except where the compact style replaces it (see below). The profile frames eligible built-in cards but does not replace self-rendered tools. `pi-tool-display` remains authoritative for `edit` and `write` when it is enabled, except under the compact style. The profile supplies its semantic edit card only when that renderer is absent or disabled.
 
 ## What the profile changes
 
@@ -28,7 +28,7 @@ Compact cards replace a tool's renderer through `pi.registerToolRenderer`, which
     + 37 lines (ctrl+o)
 ```
 
-`bash`, `powershell`, `read`, `grep`, `find`, `ls`, `edit`, `write`, `codemode`, `web_search`, `fetch_content`, and `get_search_content` use compact cards by default, even when another extension such as `pi-tool-display` draws them. Any other tool uses a compact card only when it has no renderer of its own. `/visual-profile renderer <tool> compact|owner` overrides either default.
+`bash`, `powershell`, `read`, `grep`, `find`, `ls`, `edit`, `write`, `codemode`, `web_search`, `fetch_content`, and `get_search_content` use compact cards by default, even when another extension such as `pi-tool-display` draws them. Any other tool uses a compact card only when it has no renderer of its own. `/visual-profile renderer <tool> compact|owner` overrides either default. Rows already on screen switch renderers only on Pi builds with the profile hook (`activateToolRendererProfile`); on public Pi 1.1, a change applies to new rows.
 
 Each kind of tool has its own verb color: shell, file, search, web, codemode, and other tools. A failed call shows its verb in the error color. Headers highlight their targets in bold: the command, paths, search patterns, queries, and URLs. Colors come from the active theme. A shell header shows the first line of the command, the exit code of a failed command, and the duration. A codemode header totals its calls, the cost and tokens of its `models.*` calls, and the duration, then lists every nested call. Expanding a codemode card shows codemode's own rendering. Per-call tokens need a Pi build that reports them.
 
