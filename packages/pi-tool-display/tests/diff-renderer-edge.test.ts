@@ -593,6 +593,23 @@ test("renderWriteDiffResult reports overwritten file header", () => {
 	assert.ok(joined.includes("overwritten") || joined.includes("↳"));
 });
 
+test("renderWriteDiffResult counts an overwrite in its header", () => {
+	const component = renderWriteDiffResult(
+		"one\ntwo changed\nthree\nfour\n",
+		{
+			expanded: true,
+			filePath: "over.txt",
+			previousContent: "one\ntwo\nthree\n",
+			fileExistedBeforeWrite: true,
+		},
+		defaultConfig,
+		passThroughTheme,
+		"",
+	);
+	const header = renderInsideToolBox(component, 120).find((line) => line.includes("overwritten"));
+	assert.match(header ?? "", /↳ overwritten \+2 -1/);
+});
+
 // ─── renderWriteDiffResult with undefined / null content ────────────────────
 
 test("renderWriteDiffResult handles undefined content", () => {
