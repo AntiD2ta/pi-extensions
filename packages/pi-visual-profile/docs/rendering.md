@@ -32,7 +32,7 @@ Compact cards replace a tool's renderer through `pi.registerToolRenderer`, which
 
 Each kind of tool has its own verb color: shell, file, search, edit, web, codemode, and other tools. A failed call shows its verb in the error color. Headers highlight their targets in bold: the command, paths, search patterns, queries, and URLs. Colors come from the active theme. A shell header shows the first line of the command, the exit code of a failed command, and the duration. A codemode header totals its calls, the cost and tokens of its `models.*` calls, and the duration, then lists every nested call. Expanding a codemode card shows codemode's own rendering in Pi's tool box. Per-call tokens need a Pi build that reports them.
 
-Compact `edit` and `write` cards show a header such as `• Edited notes.ts (+2 -1)` or `• Added notes.ts (+4 -0)` above the owner's diff or code body, on the tool's success or error background. The owner's own summary row is dropped. The owner's pending preview is not shown while the call runs. An overwrite drawn by `pi-tool-display` has no counts, because it draws no summary row for one.
+Compact `edit` and `write` cards show a header such as `• Edited notes.ts (+2 -1)` or `• Added notes.ts (+4 -0)` above the owner's diff or code body, on the tool's success or error background. The owner's own summary row is dropped. The owner's pending preview is not shown while the call runs.
 
 The semantic edit card names the file, counts additions and removals, marks hunk ranges, colors added and removed rows, and limits a collapsed preview. `side-by-side` uses paired replacement rows when the terminal is wide enough. It falls back to stacked rows below that width.
 

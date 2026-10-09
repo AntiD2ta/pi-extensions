@@ -227,10 +227,10 @@ test("an edit card counts Pi diff rows with padded line numbers", () => {
 	assert.equal(renderRow("edit", { path: "a.ts" }, "ok", {}, { diff }, owner)[0], "• Edited a.ts (+2 -1)");
 });
 
-test("an overwrite drawn without counts says Edited", () => {
-	const owner: ToolRenderers = { renderResult: () => new Text("↳ overwritten\nbody", 0, 0) };
+test("an overwrite takes its counts from the owner's header", () => {
+	const owner: ToolRenderers = { renderResult: () => new Text("↳ overwritten +3 -2\nbody", 0, 0) };
 
-	assert.deepEqual(renderRow("write", { path: "a.ts", content: "x" }, "ok", {}, undefined, owner), ["• Edited a.ts", "  body"]);
+	assert.deepEqual(renderRow("write", { path: "a.ts", content: "x" }, "ok", {}, undefined, owner), ["• Edited a.ts (+3 -2)", "  body"]);
 });
 
 test("a write without a known previous state says Wrote", () => {

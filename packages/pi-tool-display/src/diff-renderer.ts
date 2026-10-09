@@ -2161,10 +2161,13 @@ function renderWriteHeader(
 	width: number,
 	theme: DiffTheme,
 	headerLabel?: string,
+	stats?: DiffStats,
 ): string {
 	const actionLabel = headerLabel?.trim() || (wasOverwrite ? "overwritten" : "created");
+	// Local change: an overwrite names its line counts, which pi-visual-profile's compact header reads.
+	const counts = stats ? ` ${theme.fg("toolDiffAdded", `+${stats.added}`)} ${theme.fg("toolDiffRemoved", `-${stats.removed}`)}` : "";
 	return stabilizeBackgroundResets(
-		truncateToWidth(theme.fg("toolOutput", `↳ ${emphasis(theme, actionLabel)}`), width),
+		truncateToWidth(`${theme.fg("toolOutput", `↳ ${emphasis(theme, actionLabel)}`)}${counts}`, width),
 	);
 }
 
@@ -2474,6 +2477,9 @@ export function renderWriteDiffResult(
 			}
 
 			const data = getDetailedData();
+			const countedHeader = hasComparablePrevious
+				? renderWriteHeader(true, safeWidth, theme, options.headerLabel, data.stats)
+				: header;
 			const renderCtx: DiffRenderContext = {
 				width: safeWidth, theme, inlineHighlights: data.inlineHighlights, palette, highlightLine, containerBgAnsi, wordWrap, indicatorMode, showHashlineAnchors: false,
 			};
@@ -2507,8 +2513,8 @@ export function renderWriteDiffResult(
 			);
 			const frame = renderDiffFrameLine(safeWidth, theme);
 			const renderedLines = mode === "unified"
-				? [header, frame, ...bodyWithLimit, frame]
-				: [header, ...bodyWithLimit];
+				? [countedHeader, frame, ...bodyWithLimit, frame]
+				: [countedHeader, ...bodyWithLimit];
 			const finalLines = clampDiffLinesToWidth(renderedLines, safeWidth);
 			return cache.set(safeWidth, options.expanded, mode, finalLines);
 		},

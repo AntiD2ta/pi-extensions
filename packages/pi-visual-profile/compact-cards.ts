@@ -44,7 +44,7 @@ const TAIL_LINES = 3;
 const CALL_ARGS_CHARS = 80;
 const SCRIPT_HEADER = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOutput:\n$/;
 /** pi-tool-display's summary row; the compact header carries the same facts. */
-const MUTATION_SUMMARY = /^\s*↳ (?:diff \+(\d+) -(\d+)|(created|overwritten)\b)/;
+const MUTATION_SUMMARY = /^\s*↳ (diff|created|overwritten)\b(?: \+(\d+) -(\d+))?/;
 const SHELL_STATUS = /\n*(?:Command exited with code (\d+)|Command timed out after \d+ seconds|Command aborted)\s*$/;
 
 /** Tools named in COMPACT_BY_DEFAULT and tools without their own renderer default to compact. */
@@ -250,8 +250,9 @@ function readMutation(rendered: string[], details: unknown): CardState["compactM
 	let mutation: CardState["compactMutation"];
 	for (const line of rendered) {
 		const match = MUTATION_SUMMARY.exec(stripTerminalSequences(line));
-		if (match?.[1]) mutation = { created: mutation?.created ?? false, added: Number(match[1]), removed: Number(match[2]) };
-		else if (match?.[3]) mutation = { ...mutation, created: match[3] === "created" };
+		if (!match) continue;
+		const created = match[1] === "diff" ? mutation?.created ?? false : match[1] === "created";
+		mutation = match[2] ? { created, added: Number(match[2]), removed: Number(match[3]) } : { ...mutation, created };
 	}
 	if (mutation) return mutation;
 	const diff = (details as { diff?: unknown } | undefined)?.diff;

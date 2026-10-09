@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Show added and removed line counts on the header of an overwrite, e.g. `↳ overwritten +2 -1`. Local change; pi-visual-profile's compact cards read it.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
