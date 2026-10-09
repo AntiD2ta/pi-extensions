@@ -28,6 +28,7 @@ export default function (pi: ExtensionAPI) {
 		step("web_search", { query: "pi coding agent earendil" }),
 		step("fetch_content", { url: "https://example.com" }),
 		step("get_search_content", { responseId: "trial-results", queryIndex: 0 }),
+		step("mcp__trial__list_items", { query: "bug", limit: 5 }),
 		step("codemode", {
 			code: [
 				"const listing = await tools.bash({ command: 'ls packages' });",
@@ -56,6 +57,8 @@ export default function (pi: ExtensionAPI) {
 	webTool("web_search", () => `${results}\nFull results are stored as responseId "trial-results".`);
 	webTool("fetch_content", () => { throw new Error("Could not fetch https://example.com: trial stand-in"); });
 	webTool("get_search_content", () => results);
+	// Named like a built-in MCP tool, so it gets the MCP header.
+	webTool("mcp__trial__list_items", () => Array.from({ length: 6 }, (_, index) => `TRI-${index + 1} trial item`).join("\n"));
 	// A classifier with fixed usage, so the codemode card shows cost and tokens.
 	pi.registerProvider("compact-card-scorer", {
 		baseUrl: "https://classifier.invalid/v1",

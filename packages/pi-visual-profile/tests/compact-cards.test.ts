@@ -107,6 +107,7 @@ test("each kind of tool has its own verb color, and targets are highlighted", ()
 	assert.match(header("web_search", { query: "pi" }), /<syntaxType>Searched web<\/> <syntaxString>"pi"<\/>/);
 	assert.match(header("codemode", { code: "x" }), /<syntaxOperator>codemode<\/>/);
 	assert.match(header("edit", { path: "a.ts" }), /<bashMode>Edited<\/>/);
+	assert.match(header("mcp__linear__list_issues", { query: "x" }), /<mdLink>Called<\/> <text>linear\/list_issues<\/>/);
 });
 
 test("codemode header counts, cost, and tokens have their own colors", () => {
@@ -203,6 +204,19 @@ test("rows rebuilt from history after a reload show their final state", () => {
 
 	assert.equal(lines[0], "• Ran ls");
 	assert.match(header, /^<error>•<\/> <error>Fetched<\/>/);
+});
+
+test("built-in MCP tools are compact by default", () => {
+	assert.equal(rendererChoice("mcp__linear__list_issues", ownRenderer, {}), "compact");
+	assert.equal(rendererChoice("mcp__linear__list_issues", ownRenderer, { mcp__linear__list_issues: "owner" }), "owner");
+	// pi-mcp-adapter's namespace proxy keeps its own presentation.
+	assert.equal(rendererChoice("mcp__plane", ownRenderer, {}), "owner");
+});
+
+test("an MCP card names the server and tool, then the arguments", () => {
+	const lines = renderRow("mcp__linear__list_issues", { query: "bug", limit: 5 }, "a\nb");
+
+	assert.deepEqual(lines, ['• Called linear/list_issues {"query":"bug","limit":5}', "  └ a", "    b"]);
 });
 
 test("a running edit or write names its action", () => {
