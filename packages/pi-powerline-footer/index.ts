@@ -29,7 +29,7 @@ import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, mer
 import { getSeparator } from "./separators.ts";
 import { renderSegment } from "./segments.ts";
 import { resolveThinkingLevelSelection } from "./thinking-level.ts";
-import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
+import { getGitPullRequest, getGitStatus, invalidateGitPullRequest, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { getUsageReportSource, SubscriptionUsageTracker } from "./usage-window.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
@@ -1900,6 +1900,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     sessionGeneration++;
     dismissWelcome(ctx);
     statusRenderScheduler.cancel();
+    invalidateGitPullRequest();
     if (isHandoffHeldFor(ctx)) {
       const reason = {
         quit: "the session was shut down",
@@ -2893,7 +2894,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       shellRunning: shellSession?.state.running ?? false,
       shellName: shellSession?.state.shellName ?? null,
       shellCwd: shellSession?.state.cwd ?? null,
-      git: gitStatus,
+      git: {
+        ...gitStatus,
+        pullRequest: showGit && gitOptions?.showBranch !== false && gitOptions?.showPullRequest !== false && gitOptions?.polling !== "off"
+          ? getGitPullRequest(gitBranch, ctx.cwd)
+          : null,
+      },
       extensionStatuses,
       hiddenExtensionStatusKeys,
       customItemsById,
@@ -3479,6 +3485,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         dispose() {
           unsub();
           unsubGitUpdates();
+          invalidateGitPullRequest();
           footerDataRef = null;
           footerDataCwd = null;
           restoreFooterStatusRepaintHook?.();

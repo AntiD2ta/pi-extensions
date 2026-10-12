@@ -1,6 +1,6 @@
 import { hostname as osHostname } from "node:os";
 import { basename } from "node:path";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { getCapabilities, hyperlink, visibleWidth } from "@earendil-works/pi-tui";
 import type { BuiltinStatusLineSegmentId, RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.ts";
 import { normalizeCompactExtensionStatus, normalizeExtensionStatusValue } from "./powerline-config.ts";
 import { fg, rainbow, applyColor } from "./theme.ts";
@@ -170,6 +170,11 @@ const gitSegment: StatusLineSegment = {
       // Color just the branch name (icon + branch text)
       const branchIcon = resolveBranchIcon(icons, opts.hostIcon === true, ctx.cwd);
       content = color(ctx, branchColor, withIcon(branchIcon, branch));
+      if (opts.showPullRequest !== false && ctx.git.pullRequest) {
+        const { number, url } = ctx.git.pullRequest;
+        const label = color(ctx, branchColor, `PR #${number}`);
+        content += ` ${getCapabilities().hyperlinks ? hyperlink(label, url) : label}`;
+      }
     }
 
     // Add status indicators (each with their own color, not wrapped)

@@ -26,10 +26,18 @@ interface CachedRemoteHost {
 
 const CACHE_TTL_MS = 1000; // 1 second for file status
 const BRANCH_TTL_MS = 500; // Shorter TTL so branch updates quickly after invalidation
+const PULL_REQUEST_TTL_MS = 60_000;
+const PULL_REQUEST_TIMEOUT_MS = 5000;
+const PULL_REQUEST_OUTPUT_LIMIT = 64 * 1024;
 const REMOTE_TTL_MS = 60_000; // Origin remote almost never changes within a session
 let cachedStatus: CachedGitStatus | null = null;
 let cachedBranch: CachedBranch | null = null;
 let cachedRemoteHost: CachedRemoteHost | null = null;
+let cachedPullRequest: { value: GitStatus["pullRequest"]; timestamp: number } | null = null;
+let pendingPullRequestFetch: Promise<void> | null = null;
+let pullRequestGeneration = 0;
+let pullRequestBranch: string | null = null;
+let pullRequestRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingRemoteFetch: Promise<void> | null = null;
 let pendingFetch: Promise<void> | null = null;
 let pendingBranchFetch: Promise<void> | null = null;
@@ -48,6 +56,7 @@ function useCwd(cwd: string): string {
   currentCwd = cwd;
   invalidateGitStatus();
   invalidateGitBranch();
+  invalidateGitPullRequest();
   cachedStatus = null;
   cachedBranch = null;
   lastProviderBranch = null;
@@ -56,11 +65,11 @@ function useCwd(cwd: string): string {
 
 /** Wait for the background reads already requested by synchronous getters. */
 export async function waitForGitUpdates(): Promise<void> {
-  await Promise.all([pendingFetch, pendingBranchFetch, pendingRemoteFetch]);
+  await Promise.all([pendingFetch, pendingBranchFetch, pendingRemoteFetch, pendingPullRequestFetch]);
 }
 
-// Refreshes always renew cache timestamps, but only visible changes may publish:
-// subscribers schedule a full TUI render, which can otherwise start another refresh.
+// Completed reads publish only visible changes. PR expiry also requests a render
+// so the next lookup runs while idle.
 function notifyGitUpdate(): void {
   for (const listener of updateListeners) listener();
 }
@@ -122,11 +131,13 @@ export function readOnlyGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   return { ...env, GIT_OPTIONAL_LOCKS: "0" };
 }
 
-function runGit(args: string[], cwd: string, timeoutMs = 200): Promise<string | null> {
+function runReadOnlyCommand(command: string, args: string[], cwd: string, timeoutMs = 200, maxOutputLength = Infinity): Promise<string | null> {
   return new Promise((resolve) => {
-    const proc = spawn("git", args, {
+    const proc = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: readOnlyGitEnv(),
+      env: command === "gh"
+        ? { ...readOnlyGitEnv(), GH_PROMPT_DISABLED: "1", GH_FORCE_TTY: "", NO_COLOR: "1", CLICOLOR_FORCE: "0" }
+        : readOnlyGitEnv(),
       windowsHide: true,
       cwd,
     });
@@ -144,6 +155,10 @@ function runGit(args: string[], cwd: string, timeoutMs = 200): Promise<string | 
 
     proc.stdout.on("data", (data) => {
       stdout += data.toString();
+      if (stdout.length > maxOutputLength) {
+        proc.kill();
+        finish(null);
+      }
     });
 
     proc.on("close", (code) => {
@@ -170,10 +185,10 @@ function runGit(args: string[], cwd: string, timeoutMs = 200): Promise<string | 
  * For detached HEAD, returns the short commit SHA (matches provider's "detached" behavior).
  */
 async function fetchGitBranch(cwd: string): Promise<string | null> {
-  const branch = await runGit(["symbolic-ref", "--short", "HEAD"], cwd, 500);
+  const branch = await runReadOnlyCommand("git", ["symbolic-ref", "--short", "HEAD"], cwd, 500);
   if (branch) return branch;
 
-  const sha = await runGit(["rev-parse", "--short", "HEAD"], cwd, 500);
+  const sha = await runReadOnlyCommand("git", ["rev-parse", "--short", "HEAD"], cwd, 500);
   return sha ? `${sha} (detached)` : null;
 }
 
@@ -221,7 +236,7 @@ export function getGitRemoteHost(cwd = process.cwd()): GitHost | null {
 
   if (!pendingRemoteFetch) {
     const fetchId = branchInvalidationCounter;
-    pendingRemoteFetch = runGit(["remote", "get-url", "origin"], cwd, 1000).then(detectGitHost)
+    pendingRemoteFetch = runReadOnlyCommand("git", ["remote", "get-url", "origin"], cwd, 1000).then(detectGitHost)
       .then((host) => {
         if (fetchId !== branchInvalidationCounter) return;
         const changed = (cachedRemoteHost?.host ?? null) !== host;
@@ -246,7 +261,7 @@ export function getGitRemoteHost(cwd = process.cwd()): GitHost | null {
  * Fetch git status asynchronously
  */
 async function fetchGitStatus(cwd: string): Promise<{ staged: number; unstaged: number; untracked: number } | null> {
-  const output = await runGit(["status", "--porcelain"], cwd, 1000);
+  const output = await runReadOnlyCommand("git", ["status", "--porcelain"], cwd, 1000);
   if (output === null) return null;
   return parseGitStatusOutput(output);
 }
@@ -260,6 +275,7 @@ export function getCurrentBranch(providerBranch: string | null, cwd = process.cw
   cwd = useCwd(cwd);
   if (providerBranch !== lastProviderBranch) {
     invalidateGitBranch();
+    invalidateGitPullRequest();
     invalidateGitStatus();
     cachedBranch = null;
     lastProviderBranch = providerBranch;
@@ -279,13 +295,14 @@ export function getCurrentBranch(providerBranch: string | null, cwd = process.cw
       // Cache result if no invalidation happened (including null for non-git dirs)
       if (fetchId === branchInvalidationCounter) {
         const changed = (cachedBranch ? cachedBranch.branch : providerBranch) !== result;
+        if (changed) invalidateGitPullRequest();
         cachedBranch = {
           branch: result,
           timestamp: Date.now(),
         };
-        if (changed) notifyGitUpdate();
+        pendingBranchFetch = null;
+        if (changed || pullRequestBranch && (!cachedPullRequest || Date.now() - cachedPullRequest.timestamp >= PULL_REQUEST_TTL_MS)) notifyGitUpdate();
       }
-      if (fetchId === branchInvalidationCounter) pendingBranchFetch = null;
     });
   }
 
@@ -340,6 +357,62 @@ export function getGitStatus(providerBranch: string | null, pollingMode: GitPoll
   }
 
   return { branch, staged: 0, unstaged: 0, untracked: 0 };
+}
+
+export function getGitPullRequest(providerBranch: string | null, cwd = process.cwd()): GitStatus["pullRequest"] {
+  cwd = useCwd(cwd);
+  const branch = getCurrentBranch(providerBranch, cwd);
+  if (!branch || branch === "detached" || branch.endsWith(" (detached)")) return null;
+  if (pullRequestBranch !== branch) {
+    invalidateGitPullRequest();
+    pullRequestBranch = branch;
+  }
+  if (pendingBranchFetch) return cachedPullRequest?.value ?? null;
+  if (cachedPullRequest && Date.now() - cachedPullRequest.timestamp < PULL_REQUEST_TTL_MS) return cachedPullRequest.value;
+
+  if (!pendingPullRequestFetch) {
+    const fetchId = pullRequestGeneration;
+    pendingPullRequestFetch = runReadOnlyCommand("gh", ["pr", "view", "--json", "number,url,state"], cwd, PULL_REQUEST_TIMEOUT_MS, PULL_REQUEST_OUTPUT_LIMIT)
+      .then((output) => {
+        if (fetchId !== pullRequestGeneration) return;
+        let value: GitStatus["pullRequest"] = null;
+        try {
+          const pr: unknown = output === null ? null : JSON.parse(output);
+          if (pr && typeof pr === "object" && "number" in pr && "url" in pr && "state" in pr
+            && pr.state === "OPEN" && typeof pr.number === "number"
+            && Number.isSafeInteger(pr.number) && pr.number > 0 && typeof pr.url === "string"
+            && !/[\x00-\x20\x7f-\x9f]/.test(pr.url)) {
+            const url = new URL(pr.url);
+            if (url.protocol === "https:" && !url.username && !url.password) value = { number: pr.number, url: pr.url };
+          }
+        } catch {
+          // Invalid CLI output is unavailable PR data, not a footer failure.
+        }
+        const changed = cachedPullRequest?.value?.number !== value?.number || cachedPullRequest?.value?.url !== value?.url;
+        cachedPullRequest = { value, timestamp: Date.now() };
+        if (pullRequestRefreshTimer) clearTimeout(pullRequestRefreshTimer);
+        pullRequestRefreshTimer = setTimeout(() => {
+          pullRequestRefreshTimer = null;
+          if (cachedPullRequest) cachedPullRequest.timestamp = 0;
+          notifyGitUpdate();
+        }, PULL_REQUEST_TTL_MS);
+        pullRequestRefreshTimer.unref();
+        if (changed) notifyGitUpdate();
+      })
+      .finally(() => {
+        if (fetchId === pullRequestGeneration) pendingPullRequestFetch = null;
+      });
+  }
+  return cachedPullRequest?.value ?? null;
+}
+
+export function invalidateGitPullRequest(): void {
+  pullRequestGeneration++;
+  pullRequestBranch = null;
+  if (pullRequestRefreshTimer) clearTimeout(pullRequestRefreshTimer);
+  pullRequestRefreshTimer = null;
+  cachedPullRequest = null;
+  pendingPullRequestFetch = null;
 }
 
 /**

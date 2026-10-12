@@ -8,8 +8,10 @@ import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { PowerlineQueueStore } from "../queue/store.ts";
 import childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
+import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import type { ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
-import { waitForGitUpdates } from "../git-status.ts";
+import { subscribeGitUpdates, waitForGitUpdates } from "../git-status.ts";
 import { NERD_ICONS } from "../icons.ts";
 import { codingAgentModuleUrl } from "./pi-modules.ts";
 
@@ -260,7 +262,7 @@ test("Git rendering reuses the cwd-owned provider only on demand and refreshes a
   syncBuiltinESMExports();
   let runtime: ReturnType<typeof createCtx> | undefined;
   const layout = { left: ["git"], right: [], secondary: [] };
-  const hiddenCounts = { showStaged: false, showUnstaged: false, showUntracked: false };
+  const hiddenCounts = { showStaged: false, showUnstaged: false, showUntracked: false, showPullRequest: false };
   const start = async (powerline: Record<string, unknown>, cwd = repoA) => {
     runtime?.disposeFooter();
     // Mirror Pi's applyRuntimeSettings -> bindExtensions -> session_start ordering.
@@ -300,12 +302,12 @@ test("Git rendering reuses the cwd-owned provider only on demand and refreshes a
     assert.match(render(), /<success>[^<]*branch-a<\/success>/);
 
     writeFileSync(join(repoA, "dirty"), "untracked again");
-    await start({ git: { hostIcon: true } });
+    await start({ git: { hostIcon: true, showPullRequest: false } });
     render();
     await waitForGitUpdates();
     assert.ok(render().includes(NERD_ICONS.github));
     assert.match(render(), /<warning>/);
-    await start({ git: { hostIcon: true } }, repoB);
+    await start({ git: { hostIcon: true, showPullRequest: false } }, repoB);
     const immediate = render();
     assert.match(immediate, /branch-b/);
     assert.doesNotMatch(immediate, /branch-a|<warning>/);
@@ -491,5 +493,97 @@ test("stash history loads project prompts on demand from bounded newest files", 
     assert.equal(runtime.notifications.some((entry) => entry.level === "warning"), false);
   } finally {
     restoreEnv();
+  }
+});
+
+test("footer discovers PRs only for visible branches and refreshes while idle", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "powerline-pr-display-"));
+  const { extension, restoreEnv } = await loadPowerline(root);
+  const fake = createFakePi();
+  let branch = "feature";
+  const listeners = new Set<() => void>();
+  const footerData: ReadonlyFooterDataProvider = {
+    getGitBranch: () => branch, getExtensionStatuses: () => new Map(), getAvailableProviderCount: () => 0,
+    onBranchChange(callback) { listeners.add(callback); return () => { listeners.delete(callback); }; },
+  };
+  let state = "OPEN";
+  const calls: Parameters<typeof childProcess.spawn>[] = [];
+  t.mock.method(childProcess, "spawn", (...args: Parameters<typeof childProcess.spawn>) => {
+    calls.push(args);
+    const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), kill: () => true }) as ReturnType<typeof childProcess.spawn>;
+    queueMicrotask(() => {
+      proc.emit("spawn");
+      proc.stdout.emit("data", JSON.stringify({ number: branch === "feature" ? 123 : 124, url: `https://github.com/owner/repo/pull/${branch === "feature" ? 123 : 124}`, state, headRefName: branch }));
+      proc.emit("close", 0);
+    });
+    return proc;
+  });
+  syncBuiltinESMExports();
+  t.after(resetCapabilitiesCache);
+  setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+  let runtime: ReturnType<typeof createCtx> | undefined;
+  const start = async (git: Record<string, unknown>, disabledSegments: string[] = []) => {
+    runtime?.disposeFooter();
+    writeFileSync(join(root, "settings.json"), JSON.stringify({ powerline: {
+      welcome: false, layout: { left: ["git"], right: [], secondary: [] }, disabledSegments,
+      git: { polling: "branch", ...git },
+    } }));
+    runtime = createCtx({ cwd: root, footerData });
+    await fake.handlers.get("session_start")?.({ reason: "resume" }, runtime.ctx);
+    calls.length = 0;
+  };
+  const render = () => runtime!.widgets.get("powerline-top")!.render(200).join("\n");
+  try {
+    extension(fake.pi);
+    for (const [git, disabled] of [
+      [{ showPullRequest: false }, []], [{ polling: "off" }, []],
+      [{ showBranch: false, showStaged: false, showUnstaged: false, showUntracked: false }, []], [{}, ["git"]],
+    ] as const) {
+      await start(git, [...disabled]);
+      render();
+      await waitForGitUpdates();
+      assert.equal(calls.filter(([command]) => command === "gh").length, 0);
+    }
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
+    await start({});
+    render();
+    await waitForGitUpdates();
+    assert.match(render(), /PR #123/);
+    assert.ok(calls.every(([, , options]) => options?.cwd === root));
+    await fake.handlers.get("tool_result")?.({ toolName: "bash", input: { command: "git pull" } }, runtime!.ctx);
+    assert.match(render(), /PR #123/, "same-branch Git commands preserve the PR label");
+    await waitForGitUpdates();
+    assert.equal(calls.filter(([command]) => command === "gh").length, 1);
+    assert.doesNotMatch(runtime!.widgets.get("powerline-top")!.render(10).join("\n"), /PR #123/);
+
+    let refreshes = 0;
+    t.after(subscribeGitUpdates(() => { refreshes++; }));
+    state = "CLOSED";
+    t.mock.timers.tick(60_000);
+    assert.ok(refreshes > 0, "idle cache expiry requests a footer repaint");
+    render();
+    await waitForGitUpdates();
+    assert.doesNotMatch(render(), /PR #123/, "a PR closed outside Pi disappears after an idle refresh");
+    assert.equal(calls.filter(([command]) => command === "gh").length, 2);
+
+    state = "OPEN";
+    t.mock.timers.tick(60_000);
+    render();
+    await waitForGitUpdates();
+    assert.match(render(), /PR #123/);
+    branch = "other";
+    for (const listener of listeners) listener();
+    assert.doesNotMatch(render(), /PR #123/);
+    await waitForGitUpdates();
+    assert.doesNotMatch(render(), /PR #123/);
+    assert.match(render(), /PR #124/);
+  } finally {
+    runtime?.disposeFooter();
+    if (runtime) await fake.handlers.get("session_shutdown")?.({}, runtime.ctx);
+    await waitForGitUpdates();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    restoreEnv();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

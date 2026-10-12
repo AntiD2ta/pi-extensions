@@ -242,6 +242,7 @@ function normalizeSegmentOptions(raw: Record<string, unknown>): StatusLineSegmen
   if (isRecord(raw.git)) {
     options.git = {
       ...(typeof raw.git.showBranch === "boolean" ? { showBranch: raw.git.showBranch } : {}),
+      ...(typeof raw.git.showPullRequest === "boolean" ? { showPullRequest: raw.git.showPullRequest } : {}),
       ...(typeof raw.git.showStaged === "boolean" ? { showStaged: raw.git.showStaged } : {}),
       ...(typeof raw.git.showUnstaged === "boolean" ? { showUnstaged: raw.git.showUnstaged } : {}),
       ...(typeof raw.git.showUntracked === "boolean" ? { showUntracked: raw.git.showUntracked } : {}),
