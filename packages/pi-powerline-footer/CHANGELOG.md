@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Git pull request label.** Show a clickable `PR #123` beside the current branch for open GitHub PRs, including drafts. Uses GitHub CLI with a one-minute cache and idle refresh. Enabled by default; disable with `powerline.git.showPullRequest: false`. Requested by [@AntiD2ta](https://github.com/AntiD2ta).
 - **Subscription usage segment** — Added the opt-in `usage` segment, which shows one finite subscription usage window (`powerline.usage.windowHours`, default 5) as spent percentage plus an hourglass and the time left until it resets. It reads Pi's provider-normalized usage reports, never credentials, and hides itself on ineligible accounts and on Pi builds that cannot report usage.
 
 ### Changed

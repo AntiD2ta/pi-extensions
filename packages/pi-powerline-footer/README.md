@@ -479,6 +479,24 @@ By default the git segment polls both branch and dirty state. If background `git
 
 Use `"off"` to disable extension-owned git polling entirely and only show the branch reported by Pi when available.
 
+## Git pull request
+
+The Git segment shows `PR #123` beside the current branch when it has an open GitHub pull request, including drafts. The label links to the PR in terminals that support hyperlinks; otherwise it is plain text.
+
+Install [GitHub CLI](https://cli.github.com/) and authenticate with `gh auth login`. Powerline uses `gh pr view` in Pi's session directory, so repository and fork resolution follow GitHub CLI's current-branch behavior. Linked Git worktrees use their own branch. Detached HEAD, closed or merged PRs, missing authentication, and failed lookups show no label.
+
+Lookups run in the background with a five-second deadline. Results, including unavailable PRs, are cached for a minute and refreshed while idle. Branch and session-directory changes clear the old label. No lookup runs when the Git segment or branch is hidden, or when `git.polling` is `"off"`.
+
+To disable PR lookup and display:
+
+```json
+{
+  "powerline": {
+    "git": { "showPullRequest": false }
+  }
+}
+```
+
 ## Git host icon
 
 Set `git.hostIcon` to replace the branch icon with the origin remote's host logo:

@@ -91,6 +91,7 @@ export interface StatusLineSegmentOptions {
   };
   git?: {
     showBranch?: boolean;
+    showPullRequest?: boolean;
     showStaged?: boolean;
     showUnstaged?: boolean;
     showUntracked?: boolean;
@@ -154,6 +155,7 @@ export interface GitStatus {
   staged: number;
   unstaged: number;
   untracked: number;
+  pullRequest?: { number: number; url: string } | null;
 }
 
 // Usage statistics
