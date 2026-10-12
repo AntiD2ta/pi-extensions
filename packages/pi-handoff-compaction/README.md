@@ -48,4 +48,4 @@ Add `packages/pi-powerline-footer/index.ts` to load both. Use an empty `extensio
 
 ## Terminology
 
-This package is the **compaction owner**. The temporary Markdown file is the **handoff document**, and the first message after compaction is the **continuation prompt**. ADR-0006, Plane item PI-54, assigns compaction ownership separately from Powerline queue ownership. [`CONTEXT.md`](../../CONTEXT.md) defines these terms.
+This package is the **compaction owner**. The temporary Markdown file is the **handoff document**, and the first message after compaction is the **continuation prompt**. ADR-0006, Plane item PI-54, assigns compaction ownership separately from Powerline queue ownership. [`GLOSSARY.md`](../../GLOSSARY.md) defines these terms.

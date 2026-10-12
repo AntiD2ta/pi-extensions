@@ -8,7 +8,7 @@ Plane projects that track work for **this repo**. The `repos:` marker in each pr
   - Workspace slug `local` · base URL `http://localhost`
   - Spans repos: `github.com/antid2ta/pi`, `github.com/antid2ta/pi-extensions`
   - Gotchas: the agent token must be a project member · Plane drops an assignee who is not a project member
-  - Conventions: decisions = `adr` work items · issues = work items · glossary = `CONTEXT.md` · wayfinder maps = `wayfinder:map` work items
+  - Conventions: decisions = `adr` work items · issues = work items · glossary = `GLOSSARY.md` · wayfinder maps = `wayfinder:map` work items
 
 One project covers two repos, `github.com/antid2ta/pi` (the Pi core fork) and
 `github.com/antid2ta/pi-extensions` (this monorepo), because most extension work depends on fork
@@ -18,7 +18,7 @@ Two things go wrong on Plane writes. The agent token has to be a project member,
 writes fail. Plane also drops an assignee who is not a project member, and `update_work_item` reports
 that in its response rather than failing.
 
-Conventions: decisions are `adr` work items, issues are work items, the glossary is `CONTEXT.md` in
+Conventions: decisions are `adr` work items, issues are work items, the glossary is `GLOSSARY.md` in
 this repo, and wayfinder maps are `wayfinder:map` work items.
 
 ### Executing a Plane work item
