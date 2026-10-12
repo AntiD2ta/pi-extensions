@@ -27,13 +27,14 @@ function context(): SegmentContext {
   };
 }
 
-test("Git segment shows a PR hyperlink between the branch and counts", (t) => {
+test("Git segment underlines only the PR hyperlink between the branch and counts", (t) => {
   t.after(resetCapabilitiesCache);
   setCapabilities({ images: null, trueColor: true, hyperlinks: true });
   const ctx = context();
   Object.assign(ctx.git, { pullRequest: { number: 123, url: "https://github.com/owner/repo/pull/123" } });
   const content = renderSegment("git", ctx).content;
-  assert.match(content, /feature.*\x1b\]8;;https:\/\/github.com\/owner\/repo\/pull\/123\x1b\\PR #123\x1b\]8;;\x1b\\.*\+1/);
+  assert.match(content, /feature.*\x1b\]8;;https:\/\/github.com\/owner\/repo\/pull\/123\x1b\\\x1b\[4mPR #123\x1b\[24m\x1b\]8;;\x1b\\.*\+1/);
+  assert.equal(content.split("\x1b[4m").length - 1, 1);
   assert.equal(visibleWidth(content), visibleWidth(renderSegment("git", context()).content) + " PR #123".length);
 });
 
@@ -46,7 +47,7 @@ test("PR label respects the opt-out and unsupported terminals", (t) => {
   ctx.options.git = {};
   setCapabilities({ images: null, trueColor: true, hyperlinks: false });
   assert.match(renderSegment("git", ctx).content, /PR #123/);
-  assert.doesNotMatch(renderSegment("git", ctx).content, /\x1b\]8;/);
+  assert.doesNotMatch(renderSegment("git", ctx).content, /\x1b\]8;|\x1b\[4m/);
 });
 
 test("PR opt-out is parsed from settings without accepting non-booleans", () => {

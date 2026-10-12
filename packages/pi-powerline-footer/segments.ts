@@ -173,7 +173,7 @@ const gitSegment: StatusLineSegment = {
       if (opts.showPullRequest !== false && ctx.git.pullRequest) {
         const { number, url } = ctx.git.pullRequest;
         const label = color(ctx, branchColor, `PR #${number}`);
-        content += ` ${getCapabilities().hyperlinks ? hyperlink(label, url) : label}`;
+        content += ` ${getCapabilities().hyperlinks ? hyperlink(`\x1b[4m${label}\x1b[24m`, url) : label}`;
       }
     }
 
