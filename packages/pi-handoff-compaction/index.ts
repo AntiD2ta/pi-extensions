@@ -10,7 +10,6 @@ import { createHandoffPrompt } from "./handoff-prompt.ts";
 
 const handoffBoundaryEntryType = "handoff-compaction-boundary";
 const neutralCompactionSummary = "The prior task state was externalized. Follow the next user message.";
-const maximumAutomaticHandoffTokens = 275_000;
 const coordinationChannel = "pi-handoff-compaction:v1";
 type HandoffTrigger = "manual" | "threshold" | "overflow";
 type HandoffOperation = {
@@ -64,11 +63,8 @@ function validHandoff(handoffPath: string) {
 function needsAutomaticHandoff(ctx: ExtensionContext) {
 	const usage = ctx.getContextUsage();
 	const contextWindow = ctx.model?.contextWindow;
-	if (usage?.tokens === null || usage === undefined || contextWindow === undefined) return false;
-	const maximumTokens = ctx.model?.id?.includes("claude") && contextWindow >= 1_000_000
-		? 500_000
-		: maximumAutomaticHandoffTokens;
-	return usage.tokens >= Math.min(contextWindow * 0.9, maximumTokens);
+	if (usage?.tokens == null || !contextWindow || contextWindow < 0) return false;
+	return usage.tokens >= Math.ceil(contextWindow * 0.9);
 }
 
 function sessionId(ctx: ExtensionContext): string | undefined {
