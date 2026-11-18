@@ -647,40 +647,13 @@ test("automatic threshold uses 90 percent for small context windows", async () =
 	assert.equal(compactCalls, 1);
 });
 
-test("automatic threshold caps large context windows at 275,000 tokens", async () => {
-	const handlers = new Map<string, (event: never, ctx: never) => unknown>();
-	let compactCalls = 0;
-	let tokens = 274_999;
-	const pi = {
-		on(event: string, handler: (event: never, ctx: never) => unknown) { handlers.set(event, handler); },
-		getActiveTools: () => ["write"],
-		appendEntry() {},
-	} as unknown as ExtensionAPI;
-	const ctx = {
-		model: { contextWindow: 400_000 },
-		getContextUsage: () => ({ tokens, contextWindow: 400_000, percent: (tokens / 400_000) * 100 }),
-		compact() { compactCalls++; },
-	};
-
-	handoffCompaction(pi);
-	const turnEnd = handlers.get("turn_end");
-	assert.ok(turnEnd);
-
-	await turnEnd({} as never, ctx as never);
-	assert.equal(compactCalls, 0);
-
-	tokens = 275_000;
-	await turnEnd({} as never, ctx as never);
-	assert.equal(compactCalls, 1);
-});
-
-test("model-specific thresholds raise only large Claude windows to 500,000 tokens", async () => {
+test("automatic handoff starts at 90 percent regardless of model", async () => {
 	for (const [id, contextWindow, threshold] of [
-		["claude-sonnet-5", 1_000_000, 500_000],
-		["anthropic/claude-opus-5-5", 1_048_576, 500_000],
-		["anthropic.claude-fable-5-1-v1:0", 1_000_000, 500_000],
+		["claude-sonnet-5", 1_000_000, 900_000],
+		["anthropic/claude-opus-5-5", 1_048_576, 943_719],
+		["anthropic.claude-fable-5-1-v1:0", 1_000_000, 900_000],
 		["claude-sonnet-5", 200_000, 180_000],
-		["gpt-6.1-sol", 1_000_000, 275_000],
+		["gpt-6.1-sol", 1_000_000, 900_000],
 	] as const) {
 		const handlers = new Map<string, (event: never, ctx: never) => unknown>();
 		let compactCalls = 0;

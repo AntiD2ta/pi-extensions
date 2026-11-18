@@ -15,7 +15,7 @@ The operating system owns temporary-file cleanup. The extension does not delete 
 
 A handoff compaction needs an active `write` tool. If `write` is unavailable or inactive, the extension leaves the conversation uncompacted and reports the failure. Context overflow also starts a handoff attempt, after the current run settles. If the provider rejects the handoff before a successful write, the extension reports the failure without replacing context. An overflow after a successful write still proceeds to file verification and compaction. On Pi 1.1.0, aborting the original run before handoff generation starts cancels the handoff. Older Pi versions do not report aborted settlement, so the handoff still starts. Duplicate automatic triggers do not retry a failed attempt until usage falls below the threshold or becomes unknown; `/compact` can retry manually.
 
-Automatic handoff begins at the earliest of Pi's native compaction threshold, 90 percent of the active model context window, or 275,000 used tokens. Claude models with context windows of at least 1,000,000 tokens use a 500,000-token cap instead of 275,000.
+The extension checks for automatic handoff at 90 percent of the active model context window. Pi can independently request compaction at its native threshold. On Pi builds that support `compaction.thresholdFraction`, set it to `0.9` to align both thresholds. Manual requests and overflow do not wait for 90 percent.
 
 ## Manual focus and Powerline
 
